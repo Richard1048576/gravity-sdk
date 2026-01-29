@@ -49,7 +49,6 @@ COPY crates/gravity-sdk/Cargo.toml crates/gravity-sdk/
 COPY crates/txn_metrics/Cargo.toml crates/txn_metrics/
 COPY dependencies/aptos-executor/Cargo.toml dependencies/aptos-executor/
 COPY dependencies/aptos-executor-types/Cargo.toml dependencies/aptos-executor-types/
-COPY external/gravity_chain_core_contracts/genesis-tool/Cargo.toml external/gravity_chain_core_contracts/genesis-tool/
 
 # Create dummy source files to allow cargo to resolve and compile dependencies
 RUN mkdir -p aptos-core/consensus/src && echo "pub fn _dummy() {}" > aptos-core/consensus/src/lib.rs && \
@@ -65,8 +64,7 @@ RUN mkdir -p aptos-core/consensus/src && echo "pub fn _dummy() {}" > aptos-core/
     mkdir -p crates/gravity-sdk/src && echo "pub fn _dummy() {}" > crates/gravity-sdk/src/lib.rs && \
     mkdir -p crates/txn_metrics/src && echo "pub fn _dummy() {}" > crates/txn_metrics/src/lib.rs && \
     mkdir -p dependencies/aptos-executor/src && echo "pub fn _dummy() {}" > dependencies/aptos-executor/src/lib.rs && \
-    mkdir -p dependencies/aptos-executor-types/src && echo "pub fn _dummy() {}" > dependencies/aptos-executor-types/src/lib.rs && \
-    mkdir -p external/gravity_chain_core_contracts/genesis-tool/src && echo "fn main() {}" > external/gravity_chain_core_contracts/genesis-tool/src/main.rs
+    mkdir -p dependencies/aptos-executor-types/src && echo "pub fn _dummy() {}" > dependencies/aptos-executor-types/src/lib.rs
 
 # Fetch all dependencies
 RUN cargo fetch
