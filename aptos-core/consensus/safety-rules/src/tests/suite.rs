@@ -498,7 +498,10 @@ fn test_validator_not_in_set(safety_rules: &Callback) {
     let rand_signer = ValidatorSigner::random([0xFu8; 32]);
     let next_epoch_state = EpochState {
         epoch: 1,
-        verifier: Arc::new(ValidatorVerifier::new_single(rand_signer.author(), rand_signer.public_key())),
+        verifier: Arc::new(ValidatorVerifier::new_single(
+            rand_signer.author(),
+            rand_signer.public_key(),
+        )),
     };
     let a2 = test_utils::make_proposal_with_parent_and_overrides(
         Payload::empty(false, true),
@@ -509,13 +512,8 @@ fn test_validator_not_in_set(safety_rules: &Callback) {
         Some(1),
         Some(next_epoch_state),
     );
-    proof
-        .ledger_info_with_sigs
-        .push(a2.block().quorum_cert().ledger_info().clone());
-    assert!(matches!(
-        safety_rules.initialize(&proof),
-        Err(Error::ValidatorNotInSet(_))
-    ));
+    proof.ledger_info_with_sigs.push(a2.block().quorum_cert().ledger_info().clone());
+    assert!(matches!(safety_rules.initialize(&proof), Err(Error::ValidatorNotInSet(_))));
 
     let state = safety_rules.consensus_state().unwrap();
     assert!(!state.in_validator_set());
@@ -536,7 +534,10 @@ fn test_key_not_in_store(safety_rules: &Callback) {
     let rand_signer = ValidatorSigner::random([0xFu8; 32]);
     let next_epoch_state = EpochState {
         epoch: 1,
-        verifier: Arc::new(ValidatorVerifier::new_single(signer.author(), rand_signer.public_key())),
+        verifier: Arc::new(ValidatorVerifier::new_single(
+            signer.author(),
+            rand_signer.public_key(),
+        )),
     };
     let a2 = test_utils::make_proposal_with_parent_and_overrides(
         Payload::empty(false, true),
@@ -547,9 +548,7 @@ fn test_key_not_in_store(safety_rules: &Callback) {
         Some(1),
         Some(next_epoch_state),
     );
-    proof
-        .ledger_info_with_sigs
-        .push(a2.block().quorum_cert().ledger_info().clone());
+    proof.ledger_info_with_sigs.push(a2.block().quorum_cert().ledger_info().clone());
 
     // Expected failure due to validator key not being found.
     safety_rules.initialize(&proof).unwrap_err();

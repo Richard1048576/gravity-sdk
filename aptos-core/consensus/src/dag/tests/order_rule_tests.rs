@@ -213,10 +213,7 @@ fn test_order_rule_basic() {
     let validators = validator_verifier.get_ordered_account_addresses();
     let author_indexes = validator_verifier.address_to_validator_index().clone();
     let nodes = generate_dag_nodes(&dag, &validators);
-    let epoch_state = Arc::new(EpochState {
-        epoch: 1,
-        verifier: Arc::new(validator_verifier),
-    });
+    let epoch_state = Arc::new(EpochState { epoch: 1, verifier: Arc::new(validator_verifier) });
     let mut dag = InMemDag::new_empty(epoch_state.clone(), 0, TEST_DAG_WINDOW);
     for round_nodes in &nodes {
         for node in round_nodes.iter().flatten() {
