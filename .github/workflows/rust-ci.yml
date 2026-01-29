@@ -32,67 +32,44 @@ jobs:
         run: cargo +nightly fmt --all -- --check
 
   # ==========================================================================
-  # Clippy - runs directly on runner with disk cleanup
+  # Clippy - uses pre-built image
   # ==========================================================================
   clippy:
     name: Clippy
     runs-on: ubuntu-latest
+    container:
+      image: ghcr.io/${{ github.repository }}/rust-ci:latest
+      credentials:
+        username: ${{ github.actor }}
+        password: ${{ secrets.GITHUB_TOKEN }}
     steps:
-      - name: Free disk space
-        run: |
-          sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc /opt/hostedtoolcache/CodeQL
-          sudo apt-get clean
-          df -h
-
       - uses: actions/checkout@v4
-
-      - name: Install system dependencies
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y --no-install-recommends clang llvm libudev-dev libssl-dev pkg-config
-
-      - name: Setup Rust
-        run: rustup show
-
       - name: Restore cargo cache
         uses: Swatinem/rust-cache@v2
         with:
           prefix-key: "clippy-v1"
-
       - name: Run clippy
         run: cargo clippy --all-targets --all-features -- -D warnings
 
   # ==========================================================================
-  # Build - runs directly on runner with disk cleanup
+  # Build - uses pre-built image
   # ==========================================================================
   build:
     name: Build
     runs-on: ubuntu-latest
+    container:
+      image: ghcr.io/${{ github.repository }}/rust-ci:latest
+      credentials:
+        username: ${{ github.actor }}
+        password: ${{ secrets.GITHUB_TOKEN }}
     steps:
-      - name: Free disk space
-        run: |
-          sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc /opt/hostedtoolcache/CodeQL
-          sudo apt-get clean
-          df -h
-
       - uses: actions/checkout@v4
-
-      - name: Install system dependencies
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y --no-install-recommends clang llvm libudev-dev libssl-dev pkg-config
-
-      - name: Setup Rust
-        run: rustup show
-
       - name: Restore cargo cache
         uses: Swatinem/rust-cache@v2
         with:
           prefix-key: "build-v1"
-
       - name: Build gravity_node
         run: cargo build --bin gravity_node --profile quick-release
-
       - name: Build gravity_cli
         run: cargo build --bin gravity_cli --profile quick-release
 
@@ -103,30 +80,17 @@ jobs:
   test:
     name: Unit Tests
     runs-on: ubuntu-latest
+    container:
+      image: ghcr.io/${{ github.repository }}/rust-ci:latest
+      credentials:
+        username: ${{ github.actor }}
+        password: ${{ secrets.GITHUB_TOKEN }}
     if: |
       github.event_name == 'push' ||
       github.event_name == 'workflow_dispatch' ||
       contains(github.event.pull_request.labels.*.name, 'CICD:run-tests')
     steps:
-      - name: Free disk space
-        run: |
-          echo "Before cleanup:"
-          df -h
-          sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc /opt/hostedtoolcache/CodeQL
-          sudo rm -rf /usr/local/share/boost /usr/share/swift
-          sudo apt-get clean
-          echo "After cleanup:"
-          df -h
-
       - uses: actions/checkout@v4
-
-      - name: Install system dependencies
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y --no-install-recommends clang llvm libudev-dev libssl-dev pkg-config
-
-      - name: Setup Rust
-        run: rustup show
 
       - name: Restore cargo cache
         uses: Swatinem/rust-cache@v2
