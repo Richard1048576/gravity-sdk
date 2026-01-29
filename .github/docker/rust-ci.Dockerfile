@@ -32,7 +32,7 @@ WORKDIR /prebuild
 # Copy workspace Cargo files
 COPY Cargo.toml Cargo.lock ./
 
-# Copy all crate Cargo.toml files
+# Copy all crate Cargo.toml files (only files that actually exist in repo)
 COPY aptos-core/consensus/Cargo.toml aptos-core/consensus/
 COPY aptos-core/consensus/consensus-types/Cargo.toml aptos-core/consensus/consensus-types/
 COPY aptos-core/consensus/safety-rules/Cargo.toml aptos-core/consensus/safety-rules/
@@ -41,16 +41,12 @@ COPY bin/bench/Cargo.toml bin/bench/
 COPY bin/gravity_cli/Cargo.toml bin/gravity_cli/
 COPY bin/gravity_node/Cargo.toml bin/gravity_node/
 COPY crates/api/Cargo.toml crates/api/
-COPY crates/api-types/Cargo.toml crates/api-types/
 COPY crates/block-buffer-manager/Cargo.toml crates/block-buffer-manager/
 COPY crates/build-info/Cargo.toml crates/build-info/
-COPY crates/gravity-primitives/Cargo.toml crates/gravity-primitives/
 COPY crates/gravity-sdk/Cargo.toml crates/gravity-sdk/
-COPY crates/gravity-storage/Cargo.toml crates/gravity-storage/
 COPY crates/txn_metrics/Cargo.toml crates/txn_metrics/
 COPY dependencies/aptos-executor/Cargo.toml dependencies/aptos-executor/
 COPY dependencies/aptos-executor-types/Cargo.toml dependencies/aptos-executor-types/
-COPY dependencies/gaptos/Cargo.toml dependencies/gaptos/
 
 # Create dummy source files for cargo to compile dependencies
 RUN mkdir -p aptos-core/consensus/src && echo "pub fn _dummy() {}" > aptos-core/consensus/src/lib.rs && \
@@ -61,16 +57,12 @@ RUN mkdir -p aptos-core/consensus/src && echo "pub fn _dummy() {}" > aptos-core/
     mkdir -p bin/gravity_cli/src && echo "fn main() {}" > bin/gravity_cli/src/main.rs && \
     mkdir -p bin/gravity_node/src && echo "fn main() {}" > bin/gravity_node/src/main.rs && \
     mkdir -p crates/api/src && echo "pub fn _dummy() {}" > crates/api/src/lib.rs && \
-    mkdir -p crates/api-types/src && echo "pub fn _dummy() {}" > crates/api-types/src/lib.rs && \
     mkdir -p crates/block-buffer-manager/src && echo "pub fn _dummy() {}" > crates/block-buffer-manager/src/lib.rs && \
     mkdir -p crates/build-info/src && echo "pub fn _dummy() {}" > crates/build-info/src/lib.rs && \
-    mkdir -p crates/gravity-primitives/src && echo "pub fn _dummy() {}" > crates/gravity-primitives/src/lib.rs && \
     mkdir -p crates/gravity-sdk/src && echo "pub fn _dummy() {}" > crates/gravity-sdk/src/lib.rs && \
-    mkdir -p crates/gravity-storage/src && echo "pub fn _dummy() {}" > crates/gravity-storage/src/lib.rs && \
     mkdir -p crates/txn_metrics/src && echo "pub fn _dummy() {}" > crates/txn_metrics/src/lib.rs && \
     mkdir -p dependencies/aptos-executor/src && echo "pub fn _dummy() {}" > dependencies/aptos-executor/src/lib.rs && \
-    mkdir -p dependencies/aptos-executor-types/src && echo "pub fn _dummy() {}" > dependencies/aptos-executor-types/src/lib.rs && \
-    mkdir -p dependencies/gaptos/src && echo "pub fn _dummy() {}" > dependencies/gaptos/src/lib.rs
+    mkdir -p dependencies/aptos-executor-types/src && echo "pub fn _dummy() {}" > dependencies/aptos-executor-types/src/lib.rs
 
 # Fetch all dependencies first
 RUN cargo fetch
