@@ -32,18 +32,20 @@ jobs:
         run: cargo +nightly fmt --all -- --check
 
   # ==========================================================================
-  # Clippy - uses pre-built image with cached dependencies
+  # Clippy - uses public rust image (until pre-built image is available)
   # ==========================================================================
   clippy:
     name: Clippy
     runs-on: ubuntu-latest
     container:
-      image: ghcr.io/galxe/gravity-sdk/rust-ci:latest
-      credentials:
-        username: ${{ github.actor }}
-        password: ${{ secrets.GITHUB_TOKEN }}
+      image: rust:1.88.0-bookworm
     steps:
       - uses: actions/checkout@v4
+      - name: Install build dependencies
+        run: |
+          apt-get update && apt-get install -y --no-install-recommends \
+            clang llvm libudev-dev libssl-dev pkg-config \
+          && rm -rf /var/lib/apt/lists/*
       - name: Restore cargo cache
         uses: Swatinem/rust-cache@v2
         with:
@@ -52,18 +54,20 @@ jobs:
         run: cargo clippy --all-targets --all-features -- -D warnings
 
   # ==========================================================================
-  # Build - uses pre-built image
+  # Build - uses public rust image
   # ==========================================================================
   build:
     name: Build
     runs-on: ubuntu-latest
     container:
-      image: ghcr.io/galxe/gravity-sdk/rust-ci:latest
-      credentials:
-        username: ${{ github.actor }}
-        password: ${{ secrets.GITHUB_TOKEN }}
+      image: rust:1.88.0-bookworm
     steps:
       - uses: actions/checkout@v4
+      - name: Install build dependencies
+        run: |
+          apt-get update && apt-get install -y --no-install-recommends \
+            clang llvm libudev-dev libssl-dev pkg-config \
+          && rm -rf /var/lib/apt/lists/*
       - name: Restore cargo cache
         uses: Swatinem/rust-cache@v2
         with:
@@ -81,10 +85,7 @@ jobs:
     name: Unit Tests
     runs-on: ubuntu-latest
     container:
-      image: ghcr.io/galxe/gravity-sdk/rust-ci:latest
-      credentials:
-        username: ${{ github.actor }}
-        password: ${{ secrets.GITHUB_TOKEN }}
+      image: rust:1.88.0-bookworm
     if: |
       github.event_name == 'push' ||
       github.event_name == 'workflow_dispatch' ||
@@ -92,11 +93,16 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      - name: Install build dependencies
+        run: |
+          apt-get update && apt-get install -y --no-install-recommends \
+            clang llvm libudev-dev libssl-dev pkg-config \
+          && rm -rf /var/lib/apt/lists/*
+
       - name: Restore cargo cache
         uses: Swatinem/rust-cache@v2
         with:
           prefix-key: "test-v1"
-          # Cache the entire target directory for test builds
           cache-targets: "true"
 
       - name: Show disk space
