@@ -38,7 +38,7 @@ jobs:
     name: Clippy
     runs-on: ubuntu-latest
     container:
-      image: ghcr.io/${{ github.repository }}/rust-ci:latest
+      image: ghcr.io/richard1048576/gravity-sdk/rust-ci:latest
       credentials:
         username: ${{ github.actor }}
         password: ${{ secrets.GITHUB_TOKEN }}
@@ -58,7 +58,7 @@ jobs:
     name: Build
     runs-on: ubuntu-latest
     container:
-      image: ghcr.io/${{ github.repository }}/rust-ci:latest
+      image: ghcr.io/richard1048576/gravity-sdk/rust-ci:latest
       credentials:
         username: ${{ github.actor }}
         password: ${{ secrets.GITHUB_TOKEN }}
@@ -81,7 +81,7 @@ jobs:
     name: Unit Tests
     runs-on: ubuntu-latest
     container:
-      image: ghcr.io/${{ github.repository }}/rust-ci:latest
+      image: ghcr.io/richard1048576/gravity-sdk/rust-ci:latest
       credentials:
         username: ${{ github.actor }}
         password: ${{ secrets.GITHUB_TOKEN }}
