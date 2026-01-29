@@ -134,19 +134,32 @@ jobs:
   test-aptos:
     name: Test Aptos Crates
     runs-on: ubuntu-latest
-    container:
-      image: rust:1.88.0-bookworm
     if: |
       github.event_name == 'push' ||
       github.event_name == 'workflow_dispatch' ||
       contains(github.event.pull_request.labels.*.name, 'CICD:run-tests')
     steps:
+      - name: Free disk space
+        run: |
+          echo "=== Before cleanup ==="
+          df -h
+          # Remove unnecessary tools to free up space
+          sudo rm -rf /usr/share/dotnet
+          sudo rm -rf /usr/local/lib/android
+          sudo rm -rf /opt/ghc
+          sudo rm -rf /opt/hostedtoolcache/CodeQL
+          sudo docker image prune --all --force
+          echo "=== After cleanup ==="
+          df -h
       - uses: actions/checkout@v4
+      - name: Install Rust
+        run: |
+          curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y --default-toolchain 1.88.0
+          echo "$HOME/.cargo/bin" >> $GITHUB_PATH
       - name: Install build dependencies
         run: |
-          apt-get update && apt-get install -y --no-install-recommends \
-            clang llvm libudev-dev libssl-dev pkg-config \
-          && rm -rf /var/lib/apt/lists/*
+          sudo apt-get update && sudo apt-get install -y --no-install-recommends \
+            clang llvm libudev-dev libssl-dev pkg-config
       - name: Run cargo cache
         uses: Swatinem/rust-cache@v2
         with:
