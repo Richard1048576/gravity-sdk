@@ -54,6 +54,7 @@ COPY dependencies/aptos-executor-types/Cargo.toml dependencies/aptos-executor-ty
 RUN mkdir -p aptos-core/consensus/src && echo "pub fn _dummy() {}" > aptos-core/consensus/src/lib.rs && \
     mkdir -p aptos-core/consensus/consensus-types/src && echo "pub fn _dummy() {}" > aptos-core/consensus/consensus-types/src/lib.rs && \
     mkdir -p aptos-core/consensus/safety-rules/src && echo "pub fn _dummy() {}" > aptos-core/consensus/safety-rules/src/lib.rs && \
+    mkdir -p aptos-core/consensus/safety-rules/benches && echo "fn main() {}" > aptos-core/consensus/safety-rules/benches/safety_rules.rs && \
     mkdir -p aptos-core/mempool/src && echo "pub fn _dummy() {}" > aptos-core/mempool/src/lib.rs && \
     mkdir -p bin/bench/src && echo "fn main() {}" > bin/bench/src/main.rs && \
     mkdir -p bin/gravity_cli/src && echo "fn main() {}" > bin/gravity_cli/src/main.rs && \
