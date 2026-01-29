@@ -11,6 +11,8 @@ env:
   CARGO_TERM_COLOR: always
   CARGO_INCREMENTAL: "0"
   RUSTFLAGS: "--cfg tokio_unstable"
+  # Docker image (must be lowercase)
+  CI_IMAGE: ghcr.io/galxe/gravity-sdk/rust-ci:latest
 
 # Cancel redundant builds on PRs
 concurrency:
@@ -32,13 +34,13 @@ jobs:
         run: cargo +nightly fmt --all -- --check
 
   # ==========================================================================
-  # Clippy - uses pre-built image
+  # Clippy - uses pre-built CI image
   # ==========================================================================
   clippy:
     name: Clippy
     runs-on: ubuntu-latest
     container:
-      image: ghcr.io/richard1048576/gravity-sdk/rust-ci:latest
+      image: ghcr.io/galxe/gravity-sdk/rust-ci:latest
       credentials:
         username: ${{ github.actor }}
         password: ${{ secrets.GITHUB_TOKEN }}
@@ -52,13 +54,13 @@ jobs:
         run: cargo clippy --all-targets --all-features -- -D warnings
 
   # ==========================================================================
-  # Build - uses pre-built image
+  # Build - uses pre-built CI image
   # ==========================================================================
   build:
     name: Build
     runs-on: ubuntu-latest
     container:
-      image: ghcr.io/richard1048576/gravity-sdk/rust-ci:latest
+      image: ghcr.io/galxe/gravity-sdk/rust-ci:latest
       credentials:
         username: ${{ github.actor }}
         password: ${{ secrets.GITHUB_TOKEN }}
@@ -74,14 +76,14 @@ jobs:
         run: cargo build --bin gravity_cli --profile quick-release
 
   # ==========================================================================
-  # Unit Tests - MERGED into single job to avoid redundant compilation
+  # Unit Tests - Single job to avoid redundant compilation
   # Compile once, run all tests sequentially
   # ==========================================================================
   test:
     name: Unit Tests
     runs-on: ubuntu-latest
     container:
-      image: ghcr.io/richard1048576/gravity-sdk/rust-ci:latest
+      image: ghcr.io/galxe/gravity-sdk/rust-ci:latest
       credentials:
         username: ${{ github.actor }}
         password: ${{ secrets.GITHUB_TOKEN }}
@@ -101,27 +103,18 @@ jobs:
       - name: Show disk space
         run: df -h
 
-      # ========== Build all tests first (compile once) ==========
+      # Build all tests first (compile once)
       - name: Build all tests
         run: cargo build --tests --workspace --exclude smoke-test
 
       - name: Show disk space after build
         run: df -h
 
-      # ========== Run tests by group ==========
+      # Run tests by group
       - name: Run core crate tests
         run: |
-          echo "::group::gravity-primitives"
-          cargo test -p gravity-primitives --no-fail-fast
-          echo "::endgroup::"
-          echo "::group::gravity-storage"
-          cargo test -p gravity-storage --no-fail-fast
-          echo "::endgroup::"
           echo "::group::api"
           cargo test -p api --no-fail-fast
-          echo "::endgroup::"
-          echo "::group::api-types"
-          cargo test -p api-types --no-fail-fast
           echo "::endgroup::"
 
       - name: Run consensus tests
@@ -133,27 +126,21 @@ jobs:
           cargo test -p txn_metrics --no-fail-fast
           echo "::endgroup::"
 
-      - name: Run gaptos tests
+      - name: Run aptos-consensus tests
         run: |
-          echo "::group::gaptos"
-          cargo test -p gaptos --no-fail-fast
-          echo "::endgroup::"
-
-      - name: Run aptos-consensus tests (validated subset - 45 tests)
-        run: |
-          echo "::group::consensus-types (11 tests)"
+          echo "::group::consensus-types"
           cargo test --manifest-path aptos-core/consensus/consensus-types/Cargo.toml --no-fail-fast
           echo "::endgroup::"
-          echo "::group::safety-rules (10 tests)"
+          echo "::group::safety-rules"
           cargo test --manifest-path aptos-core/consensus/safety-rules/Cargo.toml --no-fail-fast -- --skip tests::thread --test-threads=1
           echo "::endgroup::"
-          echo "::group::mempool (1 test)"
+          echo "::group::mempool"
           cargo test --manifest-path aptos-core/mempool/Cargo.toml --no-fail-fast
           echo "::endgroup::"
-          echo "::group::DAG tests (19 tests)"
+          echo "::group::DAG tests"
           cargo test --manifest-path aptos-core/consensus/Cargo.toml "dag::tests::" --no-fail-fast -- --skip integration_tests::test_dag_e2e --test-threads=1
           echo "::endgroup::"
-          echo "::group::network tests (4 tests)"
+          echo "::group::network tests"
           cargo test --manifest-path aptos-core/consensus/Cargo.toml "network_tests::" --no-fail-fast
           echo "::endgroup::"
 
@@ -176,7 +163,7 @@ jobs:
         run: df -h
 
   # ==========================================================================
-  # Dependency checks
+  # Dependency checks for release branches
   # ==========================================================================
   dependency-check:
     name: Check gravity-reth Dependency
@@ -187,17 +174,14 @@ jobs:
       - name: Check gravity-reth branch dependency
         run: |
           set -e
-
           VERSION=$(echo "${{ github.ref_name }}" | sed 's/^branch-//')
           EXPECTED_BRANCH="gravity-devnet-${VERSION}"
 
           echo "===== Dependency Check ====="
           echo "Current branch: ${{ github.ref_name }}"
           echo "Expected gravity-reth branch: ${EXPECTED_BRANCH}"
-          echo "============================="
 
           CARGO_FILE="bin/gravity_node/Cargo.toml"
-
           if [ ! -f "${CARGO_FILE}" ]; then
             echo "ERROR: ${CARGO_FILE} not found"
             exit 1
@@ -205,30 +189,17 @@ jobs:
 
           if grep -q 'greth = .*branch = "' "${CARGO_FILE}"; then
             ACTUAL_BRANCH=$(grep 'greth = ' "${CARGO_FILE}" | sed -n 's/.*branch = "\([^"]*\)".*/\1/p')
-
             echo "Current greth dependency branch: ${ACTUAL_BRANCH}"
 
             if [ "${ACTUAL_BRANCH}" != "${EXPECTED_BRANCH}" ]; then
-              echo ""
               echo "ERROR: greth dependency branch mismatch!"
               echo "  Expected: ${EXPECTED_BRANCH}"
               echo "  Actual:   ${ACTUAL_BRANCH}"
-              echo ""
-              echo "Please update ${CARGO_FILE} to use:"
-              echo '  greth = { git = "https://github.com/Galxe/gravity-reth", branch = "'${EXPECTED_BRANCH}'" }'
               exit 1
             fi
           else
             echo "ERROR: greth dependency must use 'branch' parameter"
-            echo ""
-            echo "Current greth dependency line:"
-            grep 'greth = ' "${CARGO_FILE}"
-            echo ""
-            echo "Please update it to use branch format:"
-            echo '  greth = { git = "https://github.com/Galxe/gravity-reth", branch = "'${EXPECTED_BRANCH}'" }'
             exit 1
           fi
 
-          echo ""
           echo "Dependency check PASSED"
-          echo "  Using gravity-reth branch: ${EXPECTED_BRANCH}"

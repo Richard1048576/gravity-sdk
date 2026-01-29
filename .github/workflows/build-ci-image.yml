@@ -13,7 +13,8 @@ on:
 
 env:
   REGISTRY: ghcr.io
-  IMAGE_NAME: ${{ github.repository }}/rust-ci
+  # Image name must be lowercase
+  IMAGE_NAME: galxe/gravity-sdk/rust-ci
 
 jobs:
   build-and-push:
