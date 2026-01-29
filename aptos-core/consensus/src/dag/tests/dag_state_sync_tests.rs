@@ -157,7 +157,10 @@ async fn test_dag_state_sync() {
 
     let (signers, validator_verifier) = random_validator_verifier(4, None, false);
     let validators = validator_verifier.get_ordered_account_addresses();
-    let epoch_state = Arc::new(EpochState { epoch: 1, verifier: Arc::new(validator_verifier) });
+    let epoch_state = Arc::new(EpochState {
+        epoch: 1,
+        verifier: Arc::new(validator_verifier),
+    });
     let storage = Arc::new(MockStorage::new());
 
     let virtual_dag = (0..NUM_ROUNDS)
