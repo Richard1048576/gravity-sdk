@@ -75,7 +75,7 @@ jobs:
         run: cargo build --bin gravity_cli --profile quick-release
 
   # ==========================================================================
-  # Unit Tests - All need disk space cleanup
+  # Unit Tests - Release mode for faster CI (debug mode runs nightly)
   # ==========================================================================
 
   test-core:
@@ -98,13 +98,13 @@ jobs:
       - name: Run cargo cache
         uses: Swatinem/rust-cache@v2
         with:
-          prefix-key: "test-core"
-      - name: Run core tests
+          prefix-key: "test-core-release"
+      - name: Run core tests (release)
         run: |
-          cargo test -p gravity-primitives --no-fail-fast
-          cargo test -p gravity-storage --no-fail-fast
-          cargo test -p api --no-fail-fast
-          cargo test -p api-types --no-fail-fast
+          cargo test --release -p gravity-primitives --no-fail-fast
+          cargo test --release -p gravity-storage --no-fail-fast
+          cargo test --release -p api --no-fail-fast
+          cargo test --release -p api-types --no-fail-fast
 
   test-consensus:
     name: Test Consensus
@@ -126,11 +126,11 @@ jobs:
       - name: Run cargo cache
         uses: Swatinem/rust-cache@v2
         with:
-          prefix-key: "test-consensus"
-      - name: Run consensus tests
+          prefix-key: "test-consensus-release"
+      - name: Run consensus tests (release)
         run: |
-          cargo test -p block-buffer-manager --no-fail-fast
-          cargo test -p txn_metrics --no-fail-fast
+          cargo test --release -p block-buffer-manager --no-fail-fast
+          cargo test --release -p txn_metrics --no-fail-fast
 
   # Split aptos tests into parallel jobs for faster CI
   test-aptos-consensus-types:
@@ -153,9 +153,9 @@ jobs:
       - name: Run cargo cache
         uses: Swatinem/rust-cache@v2
         with:
-          prefix-key: "test-aptos-types"
-      - name: Run consensus-types tests
-        run: cargo test --manifest-path aptos-core/consensus/consensus-types/Cargo.toml --no-fail-fast
+          prefix-key: "test-aptos-types-release"
+      - name: Run consensus-types tests (release)
+        run: cargo test --release --manifest-path aptos-core/consensus/consensus-types/Cargo.toml --no-fail-fast
 
   test-aptos-safety-rules:
     name: Test Aptos Safety Rules (10 tests)
@@ -177,9 +177,9 @@ jobs:
       - name: Run cargo cache
         uses: Swatinem/rust-cache@v2
         with:
-          prefix-key: "test-aptos-safety"
-      - name: Run safety-rules tests
-        run: cargo test --manifest-path aptos-core/consensus/safety-rules/Cargo.toml --no-fail-fast -- --skip tests::thread --test-threads=1
+          prefix-key: "test-aptos-safety-release"
+      - name: Run safety-rules tests (release)
+        run: cargo test --release --manifest-path aptos-core/consensus/safety-rules/Cargo.toml --no-fail-fast -- --skip tests::thread --test-threads=1
 
   test-aptos-mempool:
     name: Test Aptos Mempool (1 test)
@@ -201,9 +201,9 @@ jobs:
       - name: Run cargo cache
         uses: Swatinem/rust-cache@v2
         with:
-          prefix-key: "test-aptos-mempool"
-      - name: Run mempool tests
-        run: cargo test --manifest-path aptos-core/mempool/Cargo.toml --no-fail-fast
+          prefix-key: "test-aptos-mempool-release"
+      - name: Run mempool tests (release)
+        run: cargo test --release --manifest-path aptos-core/mempool/Cargo.toml --no-fail-fast
 
   test-aptos-dag-network:
     name: Test Aptos DAG & Network (23 tests)
@@ -225,11 +225,11 @@ jobs:
       - name: Run cargo cache
         uses: Swatinem/rust-cache@v2
         with:
-          prefix-key: "test-aptos-dag"
-      - name: Run DAG tests (19 tests)
-        run: cargo test --manifest-path aptos-core/consensus/Cargo.toml "dag::tests::" --no-fail-fast -- --skip integration_tests::test_dag_e2e --test-threads=1
-      - name: Run network tests (4 tests)
-        run: cargo test --manifest-path aptos-core/consensus/Cargo.toml "network_tests::" --no-fail-fast
+          prefix-key: "test-aptos-dag-release"
+      - name: Run DAG tests (19 tests, release)
+        run: cargo test --release --manifest-path aptos-core/consensus/Cargo.toml "dag::tests::" --no-fail-fast -- --skip integration_tests::test_dag_e2e --test-threads=1
+      - name: Run network tests (4 tests, release)
+        run: cargo test --release --manifest-path aptos-core/consensus/Cargo.toml "network_tests::" --no-fail-fast
 
   test-dependencies:
     name: Test Dependencies
@@ -251,9 +251,9 @@ jobs:
       - name: Run cargo cache
         uses: Swatinem/rust-cache@v2
         with:
-          prefix-key: "test-deps"
-      - name: Run dependency tests
-        run: cargo test -p gaptos --no-fail-fast
+          prefix-key: "test-deps-release"
+      - name: Run dependency tests (release)
+        run: cargo test --release -p gaptos --no-fail-fast
 
   test-binaries:
     name: Test Binaries
@@ -276,17 +276,17 @@ jobs:
       - name: Run cargo cache
         uses: Swatinem/rust-cache@v2
         with:
-          prefix-key: "test-binaries"
+          prefix-key: "test-binaries-release"
       - name: Show disk space
         run: df -h
-      - name: Run gravity_node tests (serial)
-        run: cargo test -p gravity_node --no-fail-fast -- --test-threads=1
+      - name: Run gravity_node tests (release)
+        run: cargo test --release -p gravity_node --no-fail-fast -- --test-threads=1
       - name: Clean to free space
         run: |
           cargo clean -p gravity_node
           df -h
-      - name: Run gravity_cli tests
-        run: cargo test -p gravity_cli --no-fail-fast
+      - name: Run gravity_cli tests (release)
+        run: cargo test --release -p gravity_cli --no-fail-fast
 
   # Aggregate test results
   test-results:

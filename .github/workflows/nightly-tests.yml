@@ -1,0 +1,75 @@
+name: Nightly Tests (Debug)
+
+on:
+  schedule:
+    # Run at 2:00 AM UTC every day
+    - cron: '0 2 * * *'
+  workflow_dispatch:
+
+env:
+  CARGO_TERM_COLOR: always
+  CARGO_INCREMENTAL: "0"
+  RUSTFLAGS: "--cfg tokio_unstable"
+
+jobs:
+  # ==========================================================================
+  # Nightly debug mode tests - comprehensive regression testing
+  # ==========================================================================
+
+  test-all-debug:
+    name: All Tests (Debug Mode)
+    runs-on: ubuntu-latest
+    steps:
+      - name: Free disk space
+        run: |
+          sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc /opt/hostedtoolcache/CodeQL
+          sudo docker image prune --all --force
+          df -h
+      - uses: actions/checkout@v4
+      - name: Install Rust
+        run: rustup default 1.88.0
+      - name: Install build dependencies
+        run: sudo apt-get update && sudo apt-get install -y libudev-dev libssl-dev pkg-config clang llvm
+      - name: Run cargo cache
+        uses: Swatinem/rust-cache@v2
+        with:
+          prefix-key: "nightly-debug"
+
+      - name: Run core tests (debug)
+        run: |
+          cargo test -p gravity-primitives --no-fail-fast
+          cargo test -p gravity-storage --no-fail-fast
+          cargo test -p api --no-fail-fast
+          cargo test -p api-types --no-fail-fast
+
+      - name: Run consensus tests (debug)
+        run: |
+          cargo test -p block-buffer-manager --no-fail-fast
+          cargo test -p txn_metrics --no-fail-fast
+
+      - name: Run aptos consensus-types tests (debug)
+        run: cargo test --manifest-path aptos-core/consensus/consensus-types/Cargo.toml --no-fail-fast
+
+      - name: Run aptos safety-rules tests (debug)
+        run: cargo test --manifest-path aptos-core/consensus/safety-rules/Cargo.toml --no-fail-fast -- --skip tests::thread --test-threads=1
+
+      - name: Run aptos mempool tests (debug)
+        run: cargo test --manifest-path aptos-core/mempool/Cargo.toml --no-fail-fast
+
+      - name: Run aptos DAG tests (debug)
+        run: cargo test --manifest-path aptos-core/consensus/Cargo.toml "dag::tests::" --no-fail-fast -- --skip integration_tests::test_dag_e2e --test-threads=1
+
+      - name: Run aptos network tests (debug)
+        run: cargo test --manifest-path aptos-core/consensus/Cargo.toml "network_tests::" --no-fail-fast
+
+      - name: Run gaptos tests (debug)
+        run: cargo test -p gaptos --no-fail-fast
+
+      - name: Run gravity_node tests (debug)
+        run: cargo test -p gravity_node --no-fail-fast -- --test-threads=1
+
+      - name: Run gravity_cli tests (debug)
+        run: cargo test -p gravity_cli --no-fail-fast
+
+      - name: Show final disk space
+        run: df -h
