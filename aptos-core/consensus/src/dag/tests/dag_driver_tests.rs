@@ -137,10 +137,7 @@ fn setup(
     validator_verifier: ValidatorVerifier,
     network_sender: Arc<MockNetworkSender>,
 ) -> DagDriver {
-    let epoch_state = Arc::new(EpochState {
-        epoch: 1,
-        verifier: Arc::new(validator_verifier),
-    });
+    let epoch_state = Arc::new(EpochState { epoch: 1, verifier: Arc::new(validator_verifier) });
 
     let mock_ledger_info = LedgerInfo::mock_genesis(None);
     let mock_ledger_info = generate_ledger_info_with_sig(signers, mock_ledger_info);
