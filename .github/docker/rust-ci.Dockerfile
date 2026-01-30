@@ -39,7 +39,7 @@ RUN rustup component add clippy
 
 # Clone repo and pre-compile dependencies
 WORKDIR /workspace
-RUN git clone --depth 1 https://github.com/Galxe/gravity-sdk.git . && \
+RUN git clone --depth 1 https://github.com/Richard1048576/gravity-sdk.git . && \
     # Pre-compile all dependencies with CI profile (limit jobs to reduce memory usage)
     cargo build --profile ci --tests --workspace --exclude smoke-test -j 2 && \
     # Move compiled target to cache location
