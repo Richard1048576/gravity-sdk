@@ -12,7 +12,7 @@ env:
   CARGO_INCREMENTAL: "0"
   RUSTFLAGS: "--cfg tokio_unstable"
   # Docker image (must be lowercase)
-  CI_IMAGE: ghcr.io/galxe/gravity-sdk/rust-ci:latest
+  CI_IMAGE: ghcr.io/richard1048576/gravity-sdk/rust-ci:latest
 
 # Cancel redundant builds on PRs
 concurrency:
@@ -40,7 +40,7 @@ jobs:
     name: Clippy
     runs-on: ubuntu-latest
     container:
-      image: ghcr.io/galxe/gravity-sdk/rust-ci:latest
+      image: ghcr.io/richard1048576/gravity-sdk/rust-ci:latest
       credentials:
         username: ${{ github.actor }}
         password: ${{ secrets.GITHUB_TOKEN }}
@@ -60,7 +60,7 @@ jobs:
     name: Build
     runs-on: ubuntu-latest
     container:
-      image: ghcr.io/galxe/gravity-sdk/rust-ci:latest
+      image: ghcr.io/richard1048576/gravity-sdk/rust-ci:latest
       credentials:
         username: ${{ github.actor }}
         password: ${{ secrets.GITHUB_TOKEN }}
@@ -83,7 +83,7 @@ jobs:
     name: Unit Tests
     runs-on: ubuntu-latest
     container:
-      image: ghcr.io/galxe/gravity-sdk/rust-ci:latest
+      image: ghcr.io/richard1048576/gravity-sdk/rust-ci:latest
       credentials:
         username: ${{ github.actor }}
         password: ${{ secrets.GITHUB_TOKEN }}
