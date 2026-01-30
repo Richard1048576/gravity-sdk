@@ -38,7 +38,7 @@ jobs:
     name: Clippy
     runs-on: ubuntu-latest
     env:
-      CI_IMAGE: ghcr.io/galxe/gravity-sdk/rust-ci:latest
+      CI_IMAGE: ghcr.io/richard1048576/gravity-sdk/rust-ci:latest
     steps:
       - name: Free disk space
         run: |
@@ -67,7 +67,7 @@ jobs:
             -e CARGO_INCREMENTAL=0 \
             -e RUSTFLAGS="--cfg tokio_unstable" \
             $CI_IMAGE \
-            cargo clippy --all-targets --all-features -- -D warnings
+            bash -c "cp -rn /opt/target-cache target 2>/dev/null || true; cargo clippy --profile ci --all-targets --all-features -- -D warnings"
 
   # ==========================================================================
   # Build - verify release binaries compile (uses Docker container)
@@ -76,7 +76,7 @@ jobs:
     name: Build
     runs-on: ubuntu-latest
     env:
-      CI_IMAGE: ghcr.io/galxe/gravity-sdk/rust-ci:latest
+      CI_IMAGE: ghcr.io/richard1048576/gravity-sdk/rust-ci:latest
     steps:
       - name: Free disk space
         run: |
@@ -105,7 +105,7 @@ jobs:
             -e CARGO_INCREMENTAL=0 \
             -e RUSTFLAGS="--cfg tokio_unstable" \
             $CI_IMAGE \
-            bash -c "cargo build --bin gravity_node --profile quick-release && cargo build --bin gravity_cli --profile quick-release"
+            bash -c "cp -rn /opt/target-cache target 2>/dev/null || true; cargo build --bin gravity_node --profile quick-release && cargo build --bin gravity_cli --profile quick-release"
 
   # ==========================================================================
   # Unit Tests - Single job with Docker container
@@ -115,7 +115,7 @@ jobs:
     name: Unit Tests
     runs-on: ubuntu-latest
     env:
-      CI_IMAGE: ghcr.io/galxe/gravity-sdk/rust-ci:latest
+      CI_IMAGE: ghcr.io/richard1048576/gravity-sdk/rust-ci:latest
     if: |
       github.event_name == 'push' ||
       github.event_name == 'workflow_dispatch' ||
@@ -156,7 +156,7 @@ jobs:
       - name: Show disk space
         run: df -h
 
-      # Build all tests first with CI profile (reduced debug info)
+      # Copy pre-compiled deps and build all tests with CI profile
       - name: Build all tests
         run: |
           docker run --rm \
@@ -166,7 +166,7 @@ jobs:
             -e CARGO_INCREMENTAL=0 \
             -e RUSTFLAGS="--cfg tokio_unstable" \
             $CI_IMAGE \
-            cargo build --tests --workspace --exclude smoke-test --profile ci
+            bash -c "cp -rn /opt/target-cache target 2>/dev/null || true; cargo build --tests --workspace --exclude smoke-test --profile ci"
 
       - name: Show disk space after build
         run: df -h

@@ -10,7 +10,7 @@ on:
 env:
   REGISTRY: ghcr.io
   # Image name must be lowercase
-  IMAGE_NAME: galxe/gravity-sdk/rust-ci
+  IMAGE_NAME: richard1048576/gravity-sdk/rust-ci
 
 jobs:
   build-and-push:
