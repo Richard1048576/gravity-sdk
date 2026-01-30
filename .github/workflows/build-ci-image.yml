@@ -1,14 +1,10 @@
 name: Build CI Docker Image
 
 on:
-  push:
-    branches: [main]
-    paths:
-      - 'Cargo.lock'
-      - 'Cargo.toml'
-      - '**/Cargo.toml'
-      - '.github/docker/rust-ci.Dockerfile'
-      - '.github/workflows/build-ci-image.yml'
+  # Daily build at 00:00 UTC
+  schedule:
+    - cron: '0 0 * * *'
+  # Manual trigger
   workflow_dispatch:
 
 env:
@@ -26,6 +22,8 @@ jobs:
 
     steps:
       - uses: actions/checkout@v4
+        with:
+          ref: main
 
       - name: Free disk space
         run: |
@@ -42,6 +40,10 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
+      - name: Get current date
+        id: date
+        run: echo "date=$(date +'%Y%m%d')" >> $GITHUB_OUTPUT
+
       - name: Extract metadata
         id: meta
         uses: docker/metadata-action@v5
@@ -49,7 +51,7 @@ jobs:
           images: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
           tags: |
             type=raw,value=latest
-            type=sha,prefix=
+            type=raw,value=${{ steps.date.outputs.date }}
 
       - name: Build and push
         uses: docker/build-push-action@v5
