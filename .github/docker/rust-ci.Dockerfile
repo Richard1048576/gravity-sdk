@@ -48,8 +48,7 @@ RUN git clone --depth 1 https://github.com/Richard1048576/gravity-sdk.git . && \
     rm -rf /workspace/* /workspace/.* 2>/dev/null || true && \
     # Delete unpacked source files but keep compressed crates and index
     rm -rf /usr/local/cargo/registry/src && \
-    # Delete git checkouts but keep bare repos
-    rm -rf /usr/local/cargo/git/checkouts && \
+    # Note: Keep /usr/local/cargo/git/checkouts - cargo needs these at runtime
     # Show sizes
     echo "=== Cache sizes ===" && \
     du -sh /opt/target-cache && \
