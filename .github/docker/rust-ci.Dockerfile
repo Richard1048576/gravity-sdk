@@ -37,6 +37,10 @@ ENV RUSTFLAGS="--cfg tokio_unstable"
 RUN rustup toolchain install nightly --component rustfmt
 RUN rustup component add clippy
 
+# Install sccache for distributed compilation caching
+RUN cargo install sccache --locked
+ENV RUSTC_WRAPPER=/usr/local/cargo/bin/sccache
+
 # Clone repo and pre-compile dependencies
 WORKDIR /workspace
 RUN git clone --depth 1 https://github.com/Richard1048576/gravity-sdk.git . && \

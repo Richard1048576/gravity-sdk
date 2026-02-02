@@ -54,7 +54,8 @@ jobs:
       - name: Pull CI image
         run: docker pull $CI_IMAGE
 
-      # Note: No rust-cache needed - Docker image contains pre-compiled deps
+      - name: Configure sccache
+        uses: mozilla-actions/sccache-action@v0.0.7
 
       - name: Run clippy in container
         run: |
@@ -64,6 +65,9 @@ jobs:
             -e CARGO_TERM_COLOR=always \
             -e CARGO_INCREMENTAL=0 \
             -e RUSTFLAGS="--cfg tokio_unstable" \
+            -e SCCACHE_GHA_ENABLED=true \
+            -e ACTIONS_CACHE_URL \
+            -e ACTIONS_RUNTIME_TOKEN \
             $CI_IMAGE \
             bash -c "cp -rn /opt/target-cache target 2>/dev/null || true; cargo clippy --profile ci --all-targets --all-features -- -D warnings"
 
@@ -101,7 +105,8 @@ jobs:
       - name: Pull CI image
         run: docker pull $CI_IMAGE
 
-      # Note: No rust-cache needed - Docker image contains pre-compiled deps
+      - name: Configure sccache
+        uses: mozilla-actions/sccache-action@v0.0.7
 
       - name: Build binaries in container
         run: |
@@ -111,6 +116,9 @@ jobs:
             -e CARGO_TERM_COLOR=always \
             -e CARGO_INCREMENTAL=0 \
             -e RUSTFLAGS="--cfg tokio_unstable" \
+            -e SCCACHE_GHA_ENABLED=true \
+            -e ACTIONS_CACHE_URL \
+            -e ACTIONS_RUNTIME_TOKEN \
             $CI_IMAGE \
             bash -c "cp -rn /opt/target-cache target 2>/dev/null || true; cargo build --bin gravity_node --profile quick-release && cargo build --bin gravity_cli --profile quick-release"
 
@@ -136,14 +144,18 @@ jobs:
               cargo test -p gravity-primitives --profile ci --no-fail-fast &&
               cargo test -p gravity-storage --profile ci --no-fail-fast &&
               cargo test -p api-types --profile ci --no-fail-fast
-          - group: consensus
+          - group: consensus-core
             test_cmd: >-
               cargo test -p block-buffer-manager --profile ci --no-fail-fast &&
               cargo test -p txn_metrics --profile ci --no-fail-fast &&
               cargo test --manifest-path aptos-core/consensus/consensus-types/Cargo.toml --profile ci --no-fail-fast &&
-              cargo test --manifest-path aptos-core/consensus/safety-rules/Cargo.toml --profile ci --no-fail-fast -- --skip tests::thread --test-threads=1 &&
+              cargo test --manifest-path aptos-core/consensus/safety-rules/Cargo.toml --profile ci --no-fail-fast -- --skip tests::thread --test-threads=1
+          - group: consensus-dag
+            test_cmd: >-
+              cargo test --manifest-path aptos-core/consensus/Cargo.toml --profile ci "dag::tests::" --no-fail-fast -- --skip integration_tests::test_dag_e2e --test-threads=1
+          - group: consensus-network
+            test_cmd: >-
               cargo test --manifest-path aptos-core/mempool/Cargo.toml --profile ci --no-fail-fast &&
-              cargo test --manifest-path aptos-core/consensus/Cargo.toml --profile ci "dag::tests::" --no-fail-fast -- --skip integration_tests::test_dag_e2e --test-threads=1 &&
               cargo test --manifest-path aptos-core/consensus/Cargo.toml --profile ci "network_tests::" --no-fail-fast
           - group: gaptos
             test_cmd: >-
@@ -170,6 +182,9 @@ jobs:
       - name: Pull CI image
         run: docker pull $CI_IMAGE
 
+      - name: Configure sccache
+        uses: mozilla-actions/sccache-action@v0.0.7
+
       - name: Build tests
         run: |
           docker run --rm \
@@ -178,6 +193,9 @@ jobs:
             -e CARGO_TERM_COLOR=always \
             -e CARGO_INCREMENTAL=0 \
             -e RUSTFLAGS="--cfg tokio_unstable" \
+            -e SCCACHE_GHA_ENABLED=true \
+            -e ACTIONS_CACHE_URL \
+            -e ACTIONS_RUNTIME_TOKEN \
             $CI_IMAGE \
             bash -c "cp -rn /opt/target-cache target 2>/dev/null || true; cargo build --tests --workspace --exclude smoke-test --profile ci"
 
@@ -194,6 +212,9 @@ jobs:
             -e CARGO_TERM_COLOR=always \
             -e CARGO_INCREMENTAL=0 \
             -e RUSTFLAGS="--cfg tokio_unstable" \
+            -e SCCACHE_GHA_ENABLED=true \
+            -e ACTIONS_CACHE_URL \
+            -e ACTIONS_RUNTIME_TOKEN \
             $CI_IMAGE \
             bash -c "${{ matrix.test_cmd }}"
 
