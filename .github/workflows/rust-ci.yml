@@ -175,10 +175,12 @@ jobs:
             $CI_IMAGE \
             bash -c "cp -rn /opt/target-cache target 2>/dev/null || true; cargo build --tests --workspace --exclude smoke-test --profile ci"
 
-      - name: Clean incremental artifacts
+      - name: Fix permissions and clean artifacts
         run: |
-          rm -rf target/ci/incremental || true
-          rm -rf target/ci/.fingerprint || true
+          # Fix Docker root ownership for upload
+          sudo chown -R $(id -u):$(id -g) target/ci
+          # Remove incremental and fingerprint to reduce size
+          rm -rf target/ci/incremental target/ci/.fingerprint target/ci/build
           du -sh target/ci
 
       - name: Upload test artifacts
