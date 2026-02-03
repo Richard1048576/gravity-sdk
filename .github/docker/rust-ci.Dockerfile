@@ -39,7 +39,6 @@ RUN rustup component add clippy
 
 # Install sccache for distributed compilation caching
 RUN cargo install sccache --locked
-ENV RUSTC_WRAPPER=/usr/local/cargo/bin/sccache
 
 # Clone repo and pre-compile dependencies
 WORKDIR /workspace
