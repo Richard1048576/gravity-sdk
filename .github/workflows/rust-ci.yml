@@ -54,23 +54,41 @@ jobs:
       - name: Pull CI image
         run: docker pull $CI_IMAGE
 
-      - name: Configure sccache
-        uses: mozilla-actions/sccache-action@v0.0.7
+      - name: Restore cargo cache
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target-cache
+          key: ${{ runner.os }}-cargo-clippy-${{ hashFiles('**/Cargo.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-cargo-clippy-
 
       - name: Run clippy in container
         run: |
+          # Copy cached target if exists
+          if [ -d "target-cache" ]; then
+            cp -rn target-cache target 2>/dev/null || true
+          fi
           docker run --rm \
             -v "${{ github.workspace }}:/workspace" \
             -w /workspace \
             -e CARGO_TERM_COLOR=always \
             -e CARGO_INCREMENTAL=0 \
             -e RUSTFLAGS="--cfg tokio_unstable" \
-            -e RUSTC_WRAPPER=/usr/local/cargo/bin/sccache \
-            -e SCCACHE_GHA_ENABLED=true \
-            -e ACTIONS_CACHE_URL \
-            -e ACTIONS_RUNTIME_TOKEN \
             $CI_IMAGE \
             bash -c "cp -rn /opt/target-cache target 2>/dev/null || true; cargo clippy --profile ci --all-targets --all-features -- -D warnings"
+
+      - name: Save cargo cache
+        uses: actions/cache/save@v4
+        if: always()
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target-cache
+          key: ${{ runner.os }}-cargo-clippy-${{ hashFiles('**/Cargo.lock') }}
 
   # ==========================================================================
   # Build - verify release binaries compile (uses Docker container)
@@ -106,9 +124,6 @@ jobs:
       - name: Pull CI image
         run: docker pull $CI_IMAGE
 
-      - name: Configure sccache
-        uses: mozilla-actions/sccache-action@v0.0.7
-
       - name: Build binaries in container
         run: |
           docker run --rm \
@@ -117,10 +132,6 @@ jobs:
             -e CARGO_TERM_COLOR=always \
             -e CARGO_INCREMENTAL=0 \
             -e RUSTFLAGS="--cfg tokio_unstable" \
-            -e RUSTC_WRAPPER=/usr/local/cargo/bin/sccache \
-            -e SCCACHE_GHA_ENABLED=true \
-            -e ACTIONS_CACHE_URL \
-            -e ACTIONS_RUNTIME_TOKEN \
             $CI_IMAGE \
             bash -c "cp -rn /opt/target-cache target 2>/dev/null || true; cargo build --bin gravity_node --profile quick-release && cargo build --bin gravity_cli --profile quick-release"
 
@@ -184,9 +195,6 @@ jobs:
       - name: Pull CI image
         run: docker pull $CI_IMAGE
 
-      - name: Configure sccache
-        uses: mozilla-actions/sccache-action@v0.0.7
-
       - name: Build tests
         run: |
           docker run --rm \
@@ -195,10 +203,6 @@ jobs:
             -e CARGO_TERM_COLOR=always \
             -e CARGO_INCREMENTAL=0 \
             -e RUSTFLAGS="--cfg tokio_unstable" \
-            -e RUSTC_WRAPPER=/usr/local/cargo/bin/sccache \
-            -e SCCACHE_GHA_ENABLED=true \
-            -e ACTIONS_CACHE_URL \
-            -e ACTIONS_RUNTIME_TOKEN \
             $CI_IMAGE \
             bash -c "cp -rn /opt/target-cache target 2>/dev/null || true; cargo build --tests --workspace --exclude smoke-test --profile ci"
 
@@ -215,10 +219,6 @@ jobs:
             -e CARGO_TERM_COLOR=always \
             -e CARGO_INCREMENTAL=0 \
             -e RUSTFLAGS="--cfg tokio_unstable" \
-            -e RUSTC_WRAPPER=/usr/local/cargo/bin/sccache \
-            -e SCCACHE_GHA_ENABLED=true \
-            -e ACTIONS_CACHE_URL \
-            -e ACTIONS_RUNTIME_TOKEN \
             $CI_IMAGE \
             bash -c "${{ matrix.test_cmd }}"
 
