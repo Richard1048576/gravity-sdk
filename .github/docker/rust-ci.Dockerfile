@@ -40,6 +40,10 @@ RUN rustup component add clippy
 # Install sccache for distributed compilation caching
 RUN cargo install sccache --locked
 
+# Install cargo-nextest for faster test execution and archive support
+# Pin to 0.9.114 which supports Rust 1.88
+RUN cargo install cargo-nextest@0.9.114 --locked
+
 # Clone repo and pre-compile dependencies
 WORKDIR /workspace
 RUN git clone --depth 1 https://github.com/Richard1048576/gravity-sdk.git . && \

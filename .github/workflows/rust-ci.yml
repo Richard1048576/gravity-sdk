@@ -136,7 +136,7 @@ jobs:
             bash -c "cp -rn /opt/target-cache target 2>/dev/null || true; cargo build --bin gravity_node --profile quick-release && cargo build --bin gravity_cli --profile quick-release"
 
   # ==========================================================================
-  # Build Tests - compile all tests once (uses Docker container)
+  # Build Tests - compile all tests once and create nextest archive
   # ==========================================================================
   build-tests:
     name: Build Tests
@@ -164,7 +164,7 @@ jobs:
       - name: Pull CI image
         run: docker pull $CI_IMAGE
 
-      - name: Build all tests
+      - name: Build and archive tests
         run: |
           docker run --rm \
             -v "${{ github.workspace }}:/workspace" \
@@ -173,28 +173,20 @@ jobs:
             -e CARGO_INCREMENTAL=0 \
             -e RUSTFLAGS="--cfg tokio_unstable" \
             $CI_IMAGE \
-            bash -c "cp -rn /opt/target-cache target 2>/dev/null || true; cargo build --tests --workspace --exclude smoke-test --profile ci"
+            bash -c "cp -rn /opt/target-cache target 2>/dev/null || true; cargo nextest archive --workspace --exclude smoke-test --profile ci --archive-file nextest-archive.tar.zst"
 
-      - name: Fix permissions and clean artifacts
-        run: |
-          # Fix Docker root ownership for upload
-          sudo chown -R $(id -u):$(id -g) target/ci
-          # Only remove incremental build cache to reduce size
-          rm -rf target/ci/incremental
-          # Update all timestamps so Cargo sees artifacts as fresh
-          find target/ci -type f -exec touch {} + 2>/dev/null || true
-          du -sh target/ci
+      - name: Fix permissions
+        run: sudo chown $(id -u):$(id -g) nextest-archive.tar.zst && ls -lh nextest-archive.tar.zst
 
-      - name: Upload test artifacts
+      - name: Upload nextest archive
         uses: actions/upload-artifact@v4
         with:
-          name: test-target
-          path: target/ci
+          name: nextest-archive
+          path: nextest-archive.tar.zst
           retention-days: 1
-          compression-level: 1
 
   # ==========================================================================
-  # Unit Tests - Parallel matrix jobs using pre-built artifacts
+  # Unit Tests - Parallel matrix jobs using nextest archive (no recompilation)
   # ==========================================================================
   test:
     name: "Tests (${{ matrix.group }})"
@@ -207,32 +199,17 @@ jobs:
       matrix:
         include:
           - group: core
-            test_cmd: >-
-              cargo test -p api --profile ci --no-fail-fast &&
-              cargo test -p gravity-primitives --profile ci --no-fail-fast &&
-              cargo test -p gravity-storage --profile ci --no-fail-fast &&
-              cargo test -p api-types --profile ci --no-fail-fast
+            filter: "-E 'package(api) | package(gravity-primitives) | package(gravity-storage) | package(api-types)'"
           - group: consensus-core
-            test_cmd: >-
-              cargo test -p block-buffer-manager --profile ci --no-fail-fast &&
-              cargo test -p txn_metrics --profile ci --no-fail-fast &&
-              cargo test --manifest-path aptos-core/consensus/consensus-types/Cargo.toml --profile ci --no-fail-fast &&
-              cargo test --manifest-path aptos-core/consensus/safety-rules/Cargo.toml --profile ci --no-fail-fast -- --skip tests::thread --test-threads=1
+            filter: "-E 'package(block-buffer-manager) | package(txn_metrics) | package(aptos-consensus-types) | package(safety-rules)' --run-ignored default"
           - group: consensus-dag
-            test_cmd: >-
-              cargo test --manifest-path aptos-core/consensus/Cargo.toml --profile ci "dag::tests::" --no-fail-fast -- --skip integration_tests::test_dag_e2e --test-threads=1
+            filter: "-E 'package(aptos-consensus) & test(/dag::tests::/)'"
           - group: consensus-network
-            test_cmd: >-
-              cargo test --manifest-path aptos-core/mempool/Cargo.toml --profile ci --no-fail-fast &&
-              cargo test --manifest-path aptos-core/consensus/Cargo.toml --profile ci "network_tests::" --no-fail-fast
+            filter: "-E 'package(aptos-mempool) | (package(aptos-consensus) & test(/network_tests::/))'"
           - group: gaptos
-            test_cmd: >-
-              cargo test -p gaptos --profile ci --no-fail-fast &&
-              cargo test --manifest-path dependencies/aptos-executor/Cargo.toml --profile ci --no-fail-fast -- --test-threads=1
+            filter: "-E 'package(gaptos) | package(aptos-executor)'"
           - group: binaries
-            test_cmd: >-
-              cargo test -p gravity_node --profile ci --no-fail-fast -- --test-threads=1 &&
-              cargo test -p gravity_cli --profile ci --no-fail-fast
+            filter: "-E 'package(gravity_node) | package(gravity_cli)'"
     steps:
       - name: Free disk space
         run: |
@@ -247,34 +224,22 @@ jobs:
 
       - uses: actions/checkout@v4
 
-      - name: Download test artifacts
+      - name: Download nextest archive
         uses: actions/download-artifact@v4
         with:
-          name: test-target
-          path: target/ci
-
-      - name: Fix timestamps for Cargo
-        run: |
-          # Make source files older so Cargo doesn't recompile
-          find . -name "*.rs" -exec touch -d "2020-01-01" {} + 2>/dev/null || true
-          find . -name "Cargo.toml" -exec touch -d "2020-01-01" {} + 2>/dev/null || true
-          find . -name "Cargo.lock" -exec touch -d "2020-01-01" {} + 2>/dev/null || true
-          # Make compiled artifacts recent
-          find target/ci -type f -exec touch {} + 2>/dev/null || true
+          name: nextest-archive
 
       - name: Pull CI image
         run: docker pull $CI_IMAGE
 
-      - name: Run tests
+      - name: Run tests from archive
         run: |
           docker run --rm \
             -v "${{ github.workspace }}:/workspace" \
             -w /workspace \
             -e CARGO_TERM_COLOR=always \
-            -e CARGO_INCREMENTAL=0 \
-            -e RUSTFLAGS="--cfg tokio_unstable" \
             $CI_IMAGE \
-            bash -c "${{ matrix.test_cmd }}"
+            bash -c "cargo nextest run --archive-file nextest-archive.tar.zst --workspace-remap /workspace ${{ matrix.filter }}"
 
       - name: Show final disk space
         run: df -h
