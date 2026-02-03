@@ -179,8 +179,10 @@ jobs:
         run: |
           # Fix Docker root ownership for upload
           sudo chown -R $(id -u):$(id -g) target/ci
-          # Remove incremental and fingerprint to reduce size
-          rm -rf target/ci/incremental target/ci/.fingerprint target/ci/build
+          # Only remove incremental build cache to reduce size
+          rm -rf target/ci/incremental
+          # Update all timestamps so Cargo sees artifacts as fresh
+          find target/ci -type f -exec touch {} + 2>/dev/null || true
           du -sh target/ci
 
       - name: Upload test artifacts
@@ -250,6 +252,15 @@ jobs:
         with:
           name: test-target
           path: target/ci
+
+      - name: Fix timestamps for Cargo
+        run: |
+          # Make source files older so Cargo doesn't recompile
+          find . -name "*.rs" -exec touch -d "2020-01-01" {} + 2>/dev/null || true
+          find . -name "Cargo.toml" -exec touch -d "2020-01-01" {} + 2>/dev/null || true
+          find . -name "Cargo.lock" -exec touch -d "2020-01-01" {} + 2>/dev/null || true
+          # Make compiled artifacts recent
+          find target/ci -type f -exec touch {} + 2>/dev/null || true
 
       - name: Pull CI image
         run: docker pull $CI_IMAGE
