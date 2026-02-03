@@ -27,6 +27,11 @@ make init
 ```
 *Note: The first run will clone and build the genesis contract, which may take a few minutes.*
 
+> ⚠️ **Important**: The `init.sh` script will clone `gravity_chain_core_contracts` to `external/` if it doesn't exist, but will **NOT** automatically update it if it already exists. If the contracts have been updated upstream, you need to manually pull the latest changes:
+> ```bash
+> cd external/gravity_chain_core_contracts && git pull origin main
+> ```
+
 ### 4. Deploy and Start
 Deploy the configurations to the runtime directory and start the nodes.
 ```bash
@@ -96,3 +101,29 @@ Optional configuration for auto-generating funded accounts.
 *   **private_key**: Private key of the faucet (must hold initial funds in genesis).
 *   **eth_balance**: Amount of Wei to send to each generated account.
 
+---
+
+## IMPORTANT: Hardcoded Genesis Stake Amount
+
+> ⚠️ **ATTENTION**: The `aggregate_genesis.py` script contains a hardcoded stake amount for Genesis Validators.
+
+Even if you modify `minimumBond` or other parameters in `cluster.toml`, the initial Genesis Validators are currently created with a fixed stake amount and voting power of **2 ETH (2 * 10^18 Wei)**.
+
+This is defined in `utils/aggregate_genesis.py`:
+
+```python
+# Create validator entry in new format
+validator = {
+    "operator": val_addr,
+    "owner": val_addr,
+    "stakeAmount": "2000000000000000000",  # 2 ETH hardcoded
+    "moniker": f"validator-{len(validators) + 1}",
+    "consensusPubkey": consensus_pk,
+    "consensusPop": "0x",
+    "networkAddresses": val_net_addr,
+    "fullnodeAddresses": vfn_net_addr,
+    "votingPower": "2000000000000000000"   # 2 ETH hardcoded
+}
+```
+
+If you need to change the initial voting power of Genesis Validators, you must modify this value in `utils/aggregate_genesis.py`.
