@@ -171,7 +171,7 @@ jobs:
             -w /workspace \
             -e CARGO_TERM_COLOR=always \
             -e CARGO_INCREMENTAL=0 \
-            -e CARGO_BUILD_JOBS=4 \
+            -e CARGO_BUILD_JOBS=2 \
             -e RUSTFLAGS="--cfg tokio_unstable" \
             $CI_IMAGE \
             bash -c "cp -rn /opt/target-cache target 2>/dev/null || true; cargo nextest archive --workspace --exclude smoke-test --profile ci --archive-file nextest-archive.tar.zst"
