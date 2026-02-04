@@ -171,9 +171,10 @@ jobs:
             -w /workspace \
             -e CARGO_TERM_COLOR=always \
             -e CARGO_INCREMENTAL=0 \
+            -e CARGO_BUILD_JOBS=4 \
             -e RUSTFLAGS="--cfg tokio_unstable" \
             $CI_IMAGE \
-            bash -c "cp -rn /opt/target-cache target 2>/dev/null || true; cargo nextest archive --workspace --exclude smoke-test --profile ci --archive-file nextest-archive.tar.zst --cargo-build-jobs 4"
+            bash -c "cp -rn /opt/target-cache target 2>/dev/null || true; cargo nextest archive --workspace --exclude smoke-test --profile ci --archive-file nextest-archive.tar.zst -j 4"
 
       - name: Fix permissions
         run: sudo chown $(id -u):$(id -g) nextest-archive.tar.zst && ls -lh nextest-archive.tar.zst
