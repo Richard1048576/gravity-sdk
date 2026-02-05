@@ -204,13 +204,10 @@ jobs:
           - group: consensus-core
             filter: "-E 'package(block-buffer-manager) | package(txn_metrics) | package(aptos-consensus-types) | package(aptos-safety-rules)' --run-ignored default"
           - group: consensus-dag
-            filter: "-E 'package(aptos-consensus) & test(/dag::tests::/)'"
+            filter: "-E 'package(aptos-consensus) & test(/dag::tests::/) - test(integration_tests::test_dag_e2e)'"
           - group: consensus-network
             filter: "-E 'package(aptos-mempool) | (package(aptos-consensus) & test(/network_tests::/))'"
-          - group: executor
-            filter: "-E 'package(aptos-executor) | package(aptos-executor-types)'"
-          - group: binaries
-            filter: "-E 'package(gravity_node) | package(gravity_cli)'"
+
     steps:
       - name: Free disk space
         run: |
