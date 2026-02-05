@@ -1,0 +1,10 @@
+# cargo-nextest configuration
+# https://nexte.st/book/configuration/
+
+[profile.ci]
+# Fail fast on first failure
+fail-fast = true
+# Don't retry failed tests
+retries = 0
+# Set a reasonable timeout per test
+slow-timeout = { period = "60s", terminate-after = 3 }
