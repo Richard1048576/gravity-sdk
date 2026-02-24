@@ -3,6 +3,11 @@ name: Claude Security Review
 on:
   pull_request:
     types: [opened, synchronize, reopened]
+  workflow_dispatch:
+    inputs:
+      pr_number:
+        description: 'PR number to review'
+        required: false
 
 permissions:
   contents: read
@@ -10,8 +15,7 @@ permissions:
 
 jobs:
   security-review:
-    # Only run after maintainer approval for external PRs
-    if: github.event.pull_request.draft == false
+    if: github.event.pull_request.draft == false || github.event_name == 'workflow_dispatch'
     runs-on: ubuntu-latest
     timeout-minutes: 30
 
