@@ -3,6 +3,8 @@ Aptos Identity utilities
 Parse Aptos identity from YAML files
 """
 
+from __future__ import annotations
+
 import logging
 from dataclasses import dataclass
 from pathlib import Path
@@ -26,6 +28,7 @@ class AptosIdentity:
         consensus_private_key: Consensus private key (hex string)
         network_private_key: Network private key (hex string)
         consensus_public_key: Consensus public key (hex string)
+        consensus_pop: Proof of possession for BLS consensus key (hex string)
         network_public_key: Network public key (hex string)
     """
 
@@ -35,6 +38,7 @@ class AptosIdentity:
     network_private_key: str
     consensus_public_key: str
     network_public_key: str
+    consensus_pop: str
 
     def __post_init__(self):
         """Validate the identity fields"""
@@ -50,6 +54,8 @@ class AptosIdentity:
             raise ValueError("consensus_public_key cannot be empty")
         if not self.network_public_key:
             raise ValueError("network_public_key cannot be empty")
+        if not self.consensus_pop:
+            raise ValueError("consensus_pop cannot be empty")
 
 
 def parse_identity_from_yaml(yaml_path: str | Path) -> AptosIdentity:
@@ -98,6 +104,7 @@ def parse_identity_from_yaml(yaml_path: str | Path) -> AptosIdentity:
     network_private_key = data.get("network_private_key")
     consensus_public_key = data.get("consensus_public_key")
     network_public_key = data.get("network_public_key")
+    consensus_pop = data.get("consensus_pop")
 
     # Validate all fields are present
     missing_fields = []
@@ -113,6 +120,8 @@ def parse_identity_from_yaml(yaml_path: str | Path) -> AptosIdentity:
         missing_fields.append("consensus_public_key")
     if network_public_key is None:
         missing_fields.append("network_public_key")
+    if consensus_pop is None:
+        missing_fields.append("consensus_pop")
 
     if missing_fields:
         raise ValueError(
@@ -126,6 +135,7 @@ def parse_identity_from_yaml(yaml_path: str | Path) -> AptosIdentity:
     network_private_key = str(network_private_key).strip()
     consensus_public_key = str(consensus_public_key).strip()
     network_public_key = str(network_public_key).strip()
+    consensus_pop = str(consensus_pop).strip()
 
     try:
         identity = AptosIdentity(
@@ -135,6 +145,7 @@ def parse_identity_from_yaml(yaml_path: str | Path) -> AptosIdentity:
             network_private_key=network_private_key,
             consensus_public_key=consensus_public_key,
             network_public_key=network_public_key,
+            consensus_pop=consensus_pop,
         )
         LOG.debug(f"Successfully parsed identity from {yaml_path}")
         return identity

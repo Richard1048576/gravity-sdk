@@ -597,7 +597,6 @@ mod tests {
         let mut playground = NetworkPlayground::new(runtime.handle().clone());
         let mut nodes = Vec::new();
         let (signers, validator_verifier) = random_validator_verifier(num_nodes, None, false);
-        let validator_verifier = Arc::new(validator_verifier);
         let peers: Vec<_> = signers.iter().map(|signer| signer.author()).collect();
         let peers_and_metadata = PeersAndMetadata::new(&[NetworkId::Validator]);
 
@@ -637,7 +636,7 @@ mod tests {
                 *peer,
                 consensus_network_client,
                 self_sender,
-                validator_verifier.clone(),
+                todo!(), // validator_verifier.clone(),
             );
 
             let network_events = NetworkEvents::new(consensus_rx, None, true);
@@ -705,7 +704,6 @@ mod tests {
         let mut playground = NetworkPlayground::new(runtime.handle().clone());
         let mut nodes = Vec::new();
         let (signers, validator_verifier) = random_validator_verifier(num_nodes, None, false);
-        let validator_verifier = Arc::new(validator_verifier);
         let peers: Vec<_> = signers.iter().map(|signer| signer.author()).collect();
         let peers_and_metadata = PeersAndMetadata::new(&[NetworkId::Validator]);
 
@@ -745,7 +743,7 @@ mod tests {
                 *peer,
                 consensus_network_client.clone(),
                 self_sender,
-                validator_verifier.clone(),
+                todo!(), // validator_verifier.clone(),
             );
 
             let network_events = NetworkEvents::new(consensus_rx, None, true);

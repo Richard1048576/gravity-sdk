@@ -116,7 +116,7 @@ impl MockStorage {
             quorum_certs,
             qc,
             order_vote_enabled,
-            false, // has_root - false for test mock storage
+            todo!(),
         )
     }
 
@@ -290,7 +290,7 @@ impl PersistentLivenessStorage for EmptyStorage {
             vec![],
             None,
             order_vote_enabled,
-            false, // has_root - false for test mock storage
+            todo!(),
         ) {
             Ok(recovery_data) => LivenessStorageData::FullRecoveryData(recovery_data),
             Err(e) => {

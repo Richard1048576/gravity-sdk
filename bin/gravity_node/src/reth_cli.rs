@@ -13,6 +13,7 @@ use gaptos::api_types::{
     ExternalBlock, GLOBAL_CRYPTO_TXN_HASHER,
 };
 use greth::reth_transaction_pool::{EthPooledTransaction, ValidPoolTransaction};
+use proposer_reth_map::get_reth_address_by_index;
 
 use alloy_rpc_types_eth::TransactionRequest;
 use greth::{
@@ -130,6 +131,35 @@ impl<EthApi: RethEthCall> RethCli<EthApi> {
         (txn.recover_signer().unwrap(), txn)
     }
 
+    /// Get reth coinbase address from proposer's validator index
+    /// Returns the reth account address of the proposer if found, otherwise returns Address::ZERO
+    fn get_coinbase_from_proposer_index(proposer_index: Option<u64>) -> Address {
+        let index = match proposer_index {
+            Some(idx) => idx,
+            None => return Address::ZERO,
+        };
+
+        // Get reth address from global map (built in epoch_manager when epoch starts)
+        match get_reth_address_by_index(index) {
+            Some(reth_addr_bytes) => {
+                if reth_addr_bytes.len() == 20 {
+                    Address::from_slice(&reth_addr_bytes)
+                } else {
+                    warn!(
+                        "Reth address length {} is not 20 bytes for proposer index {}, using ZERO",
+                        reth_addr_bytes.len(),
+                        index
+                    );
+                    Address::ZERO
+                }
+            }
+            None => {
+                warn!("Failed to get reth coinbase for proposer index {}, using ZERO", index);
+                Address::ZERO
+            }
+        }
+    }
+
     pub async fn push_ordered_block(
         &self,
         mut block: ExternalBlock,
@@ -179,14 +209,20 @@ impl<EthApi: RethEthCall> RethCli<EthApi> {
         };
 
         info!("push ordered block time deserialize {:?}ms", system_time.elapsed().as_millis());
-        // TODO: make zero make sense
+
+        // Get reth coinbase from proposer's validator index
+        let coinbase = Self::get_coinbase_from_proposer_index(block.block_meta.proposer_index);
+        info!(
+            "block_number: {:?} proposer_index: {:?} coinbase: {:?}",
+            block.block_meta.block_number, block.block_meta.proposer_index, coinbase
+        );
+
         pipe_api.push_ordered_block(OrderedBlock {
             parent_id,
             id: B256::from_slice(block.block_meta.block_id.as_bytes()),
             number: block.block_meta.block_number,
             timestamp_us: block.block_meta.usecs,
-            // TODO(gravity_jan): add reth coinbase
-            coinbase: Address::ZERO,
+            coinbase,
             prev_randao: randao,
             withdrawals: Withdrawals::new(Vec::new()),
             transactions,
@@ -231,7 +267,7 @@ impl<EthApi: RethEthCall> RethCli<EthApi> {
     }
 
     pub async fn start_execution(&self) -> Result<(), String> {
-        let mut start_ordered_block = self.provider.last_block_number().unwrap() + 1;
+        let mut start_ordered_block = self.provider.recover_block_number().unwrap() + 1;
         // Initialize current_epoch from block buffer manager
         let buffer_epoch = get_block_buffer_manager().get_current_epoch().await;
         self.current_epoch.store(buffer_epoch, Ordering::SeqCst);
@@ -250,14 +286,16 @@ impl<EthApi: RethEthCall> RethCli<EthApi> {
             };
             if let Err(e) = exec_blocks {
                 let from = start_ordered_block;
-                if e.to_string().contains("Buffer is in epoch change") {
+                if e.to_string().contains("Buffer is in epoch change") ||
+                    current_epoch != get_block_buffer_manager().get_current_epoch().await
+                {
                     // consume_epoch_change returns the new epoch
                     let new_epoch = get_block_buffer_manager().consume_epoch_change().await;
                     let latest_epoch_change_block_number =
                         get_block_buffer_manager().latest_epoch_change_block_number().await;
                     start_ordered_block = latest_epoch_change_block_number + 1;
                     let old_epoch = self.current_epoch.swap(new_epoch, Ordering::SeqCst);
-                    warn!("Buffer is in epoch change, reset start_ordered_block from {} to {}, epoch from {} to {}", 
+                    info!("Buffer is in epoch change, reset start_ordered_block from {} to {}, epoch from {} to {}", 
                         from, start_ordered_block, old_epoch, new_epoch);
                 } else {
                     warn!("failed to get ordered blocks: {}", e);
@@ -331,7 +369,7 @@ impl<EthApi: RethEthCall> RethCli<EthApi> {
     }
 
     pub async fn start_commit(&self) -> Result<(), String> {
-        let mut start_commit_num = self.provider.last_block_number().unwrap() + 1;
+        let mut start_commit_num = self.provider.recover_block_number().unwrap() + 1;
         loop {
             let epoch = self.current_epoch.load(Ordering::SeqCst);
             let mut shutdown = self.shutdown.resubscribe();
@@ -372,7 +410,7 @@ impl<EthApi: RethEthCall> RethCli<EthApi> {
                 }
             }
 
-            let last_block_number = self.provider.last_block_number().unwrap();
+            let last_block_number = self.provider.recover_block_number().unwrap();
             get_block_buffer_manager()
                 .set_state(start_commit_num - 1, last_block_number)
                 .await

@@ -27,6 +27,7 @@ def parse_simple_yaml(path):
 def get_genesis_defaults():
     """Returns default genesis configuration values."""
     return {
+        "chainId": 1337,  # Default value, can be overridden in genesis.toml
         "epochIntervalMicros": 7200000000,
         "majorVersion": 1,
         "consensusConfig": "0x00",
@@ -37,7 +38,9 @@ def get_genesis_defaults():
             "unbondingDelayMicros": 604800000000,
             "allowValidatorSetChange": True,
             "votingPowerIncreaseLimitPct": 20,
-            "maxValidatorSetSize": "100"
+            "maxValidatorSetSize": "100",
+            "autoEvictEnabled": False,
+            "autoEvictThreshold": "0"
         },
         "stakingConfig": {
             "minimumStake": "1000000000000000000",
@@ -60,7 +63,9 @@ def get_genesis_defaults():
         },
         "oracleConfig": {
             "sourceTypes": [1],
-            "callbacks": ["0x00000000000000000000000000000001625F2018"]
+            "callbacks": ["0x00000000000000000000000000000001625F2018"],
+            "bridgeConfig": None,
+            "tasks": []
         },
         "jwkConfig": {
             "issuers": ["0x68747470733a2f2f6163636f756e74732e676f6f676c652e636f6d"],
@@ -82,6 +87,7 @@ def build_genesis_config(config, genesis_cfg):
     result = {}
     
     # Top-level fields
+    result["chainId"] = genesis_cfg.get("chain_id", defaults["chainId"])
     result["epochIntervalMicros"] = genesis_cfg.get("epoch_interval_micros", defaults["epochIntervalMicros"])
     result["majorVersion"] = genesis_cfg.get("major_version", defaults["majorVersion"])
     result["consensusConfig"] = genesis_cfg.get("consensus_config", defaults["consensusConfig"])
@@ -95,7 +101,9 @@ def build_genesis_config(config, genesis_cfg):
         "unbondingDelayMicros": vc.get("unbonding_delay_micros", defaults["validatorConfig"]["unbondingDelayMicros"]),
         "allowValidatorSetChange": vc.get("allow_validator_set_change", defaults["validatorConfig"]["allowValidatorSetChange"]),
         "votingPowerIncreaseLimitPct": vc.get("voting_power_increase_limit_pct", defaults["validatorConfig"]["votingPowerIncreaseLimitPct"]),
-        "maxValidatorSetSize": vc.get("max_validator_set_size", defaults["validatorConfig"]["maxValidatorSetSize"])
+        "maxValidatorSetSize": vc.get("max_validator_set_size", defaults["validatorConfig"]["maxValidatorSetSize"]),
+        "autoEvictEnabled": vc.get("auto_evict_enabled", defaults["validatorConfig"]["autoEvictEnabled"]),
+        "autoEvictThreshold": str(vc.get("auto_evict_threshold", defaults["validatorConfig"]["autoEvictThreshold"]))
     }
     
     # stakingConfig
@@ -133,6 +141,27 @@ def build_genesis_config(config, genesis_cfg):
         "callbacks": oc.get("callbacks", defaults["oracleConfig"]["callbacks"])
     }
     
+    # bridgeConfig (optional)
+    bc = oc.get("bridge_config", {})
+    if bc:
+        result["oracleConfig"]["bridgeConfig"] = {
+            "deploy": bc.get("deploy", False),
+            "trustedBridge": bc.get("trusted_bridge", "0x0000000000000000000000000000000000000000")
+        }
+    
+    # tasks (optional)
+    tasks_cfg = oc.get("tasks", [])
+    if tasks_cfg:
+        result["oracleConfig"]["tasks"] = [
+            {
+                "sourceType": t.get("source_type"),
+                "sourceId": t.get("source_id"),
+                "taskName": t.get("task_name"),
+                "config": t.get("config")
+            }
+            for t in tasks_cfg
+        ]
+    
     # jwkConfig
     jc = genesis_cfg.get("jwk_config", {})
     if jc:
@@ -150,30 +179,44 @@ def build_genesis_config(config, genesis_cfg):
 
 def main():
     if len(sys.argv) < 2:
-        print("Usage: aggregate_genesis.py <cluster_config_json_string>")
+        print("Usage: aggregate_genesis.py <config_json_string> [--genesis-mode]")
         sys.exit(1)
 
     # Read config from JSON string argument
     config_json_str = sys.argv[1]
+    genesis_mode = '--genesis-mode' in sys.argv
+    
     try:
         config = json.loads(config_json_str)
     except json.JSONDecodeError as e:
         print(f"Error parsing config JSON: {e}")
         sys.exit(1)
-        
-    base_dir = config['cluster']['base_dir']
+    
     genesis_cfg = config.get('genesis', {})
     
-    validators = []
-    nodes = config['nodes']
+    # Determine directories
+    if genesis_mode:
+        # In genesis mode:
+        #   - output_dir: where init.sh put identity keys and where we write output
+        output_dir = os.environ.get('GRAVITY_ARTIFACTS_DIR', os.path.join(os.path.dirname(__file__), '..', 'output'))
+        output_dir = os.path.abspath(output_dir)
+        # Read genesis_validators directly from genesis.toml
+        genesis_nodes = config.get('genesis_validators', [])
+        print(f"[Aggregator] Genesis mode: processing {len(genesis_nodes)} genesis validators...")
+    else:
+        # Legacy mode: read from cluster.toml
+        output_dir = config['cluster']['base_dir']
+        nodes = config['nodes']
+        # Filter to only genesis nodes
+        genesis_nodes = [n for n in nodes if n.get('role') == 'genesis']
+        print(f"[Aggregator] Processing {len(genesis_nodes)} genesis nodes for initial validator set (skipping {len(nodes) - len(genesis_nodes)} non-genesis nodes)...")
     
-    # Filter to only genesis nodes (only role='genesis' nodes go into initial validator set)
-    genesis_nodes = [n for n in nodes if n.get('role') == 'genesis']
-    print(f"[Aggregator] Processing {len(genesis_nodes)} genesis nodes for initial validator set (skipping {len(nodes) - len(genesis_nodes)} non-genesis nodes)...")
+    validators = []
 
     for node in genesis_nodes:
         node_id = node['id']
-        data_dir = node.get('data_dir') or os.path.join(base_dir, node_id)
+        # Identity keys are at: output/nodeX/config/identity.yaml
+        data_dir = node.get('data_dir') or os.path.join(output_dir, node_id)
         identity_path = os.path.join(data_dir, "config", "identity.yaml")
         
         if not os.path.exists(identity_path):
@@ -190,15 +233,32 @@ def main():
                 print("Make sure gravity_cli is updated to output public keys.")
                 sys.exit(1)
         
-        # Extract fields
-        account_addr = identity['account_address']
-        if account_addr.startswith('0x'):
-            raw_addr = account_addr[2:]
-        else:
-            raw_addr = account_addr
-            
-        # validatorAddresses: ETH-style, last 20 bytes (40 hex chars)
-        val_addr = f"0x{raw_addr[-40:]}"
+        # Get validator address from config (required)
+        val_addr = node.get('address')
+        if not val_addr:
+            print(f"Error: Node {node_id} must specify 'address' in genesis.toml")
+            sys.exit(1)
+        
+        # Validate ETH address format
+        if not val_addr.startswith('0x') or len(val_addr) != 42:
+            print(f"Error: Node {node_id}: address must be 0x-prefixed 20-byte ETH address")
+            sys.exit(1)
+        
+        # Get stake_amount and voting_power from config (required)
+        stake_amount = node.get('stake_amount')
+        voting_power = node.get('voting_power')
+        
+        if not stake_amount:
+            print(f"Error: Node {node_id} must specify 'stake_amount' in genesis.toml")
+            sys.exit(1)
+        if not voting_power:
+            print(f"Error: Node {node_id} must specify 'voting_power' in genesis.toml")
+            sys.exit(1)
+        
+        # Validate voting_power >= stake_amount
+        if int(voting_power) < int(stake_amount):
+            print(f"Error: Node {node_id}: voting_power ({voting_power}) must be >= stake_amount ({stake_amount})")
+            sys.exit(1)
             
         consensus_pk = identity['consensus_public_key']
         if not consensus_pk.startswith('0x'):
@@ -217,17 +277,17 @@ def main():
         val_net_addr = f"/ip4/{host}/tcp/{p2p_port}/noise-ik/{network_pk}/handshake/0"
         vfn_net_addr = f"/ip4/{host}/tcp/{vfn_port}/noise-ik/{network_pk}/handshake/0"
         
-        # Create validator entry in new format
+        # Create validator entry
         validator = {
             "operator": val_addr,
             "owner": val_addr,
-            "stakeAmount": "2000000000000000000",
+            "stakeAmount": stake_amount,
             "moniker": f"validator-{len(validators) + 1}",
             "consensusPubkey": consensus_pk,
             "consensusPop": "0x",
             "networkAddresses": val_net_addr,
             "fullnodeAddresses": vfn_net_addr,
-            "votingPower": "2000000000000000000"
+            "votingPower": voting_power
         }
         validators.append(validator)
 
@@ -235,8 +295,8 @@ def main():
     output = build_genesis_config(config, genesis_cfg)
     output["validators"] = validators
     
-    # Write to validator_genesis.json in base_dir
-    output_path = os.path.join(base_dir, "validator_genesis.json")
+    # Write to validator_genesis.json in output_dir
+    output_path = os.path.join(output_dir, "validator_genesis.json")
     with open(output_path, 'w') as f:
         json.dump(output, f, indent=2)
         
@@ -248,17 +308,29 @@ def main():
     faucet_alloc = {}
     
     if faucet_cfg:
-        # Normalize to list
-        accounts = faucet_cfg if isinstance(faucet_cfg, list) else [faucet_cfg]
+        private_key = faucet_cfg.get("private_key")
+        balance = faucet_cfg.get("balance")
         
-        for acc in accounts:
-            if "address" in acc and "balance" in acc:
-                faucet_alloc[acc["address"]] = {
-                    "balance": acc["balance"]
-                }
+        if private_key and balance:
+            # Derive address from private key (simple approach: use last 40 chars of keccak hash)
+            # For proper derivation, would need eth_account library
+            # Here we use a placeholder - in production use: Account.from_key(private_key).address
+            # For now, we'll include the private_key in the output for manual handling
+            address = faucet_cfg.get("address")
+            if not address:
+                # If no address provided, we can't auto-derive without eth_account
+                # Output the private_key for downstream tools to derive
+                print(f"[Aggregator] Faucet private_key provided, balance: {balance}")
+                print(f"[Aggregator] Note: Derive address externally or add 'address' field to genesis.toml")
+            else:
+                faucet_alloc[address] = {"balance": balance}
+        
+        # Also support explicit address/balance format
+        if "address" in faucet_cfg and "balance" in faucet_cfg:
+            faucet_alloc[faucet_cfg["address"]] = {"balance": faucet_cfg["balance"]}
                 
     if faucet_alloc:
-        faucet_alloc_path = os.path.join(base_dir, "faucet_alloc.json")
+        faucet_alloc_path = os.path.join(output_dir, "faucet_alloc.json")
         with open(faucet_alloc_path, 'w') as f:
             json.dump(faucet_alloc, f, indent=2)
         print(f"[Aggregator] Exported faucet allocation ({len(faucet_alloc)} accounts) to {faucet_alloc_path}")
