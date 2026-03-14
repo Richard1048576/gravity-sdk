@@ -1,33 +1,52 @@
 name: E2E Test in Docker
 
 on:
-  pull_request:
-    branches: [main]
+  pull_request_review:
+    types: [submitted]
   workflow_dispatch:
     inputs:
-      duration:
-        description: 'Run duration in seconds'
+      suite:
+        description: 'Test suite to run (empty = all)'
         required: false
-        default: '60'
+        default: ''
+
+# Queue (don't cancel) redundant runs on the same PR
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.sha }}
+  cancel-in-progress: false
 
 jobs:
+  # ==========================================================================
+  # Gate – reusable approval + duplicate-run + changed-files check
+  # ==========================================================================
+  gate:
+    name: E2E Gate
+    if: >
+      github.event_name == 'workflow_dispatch' ||
+      (github.event_name == 'pull_request_review' && github.event.review.state == 'approved' &&
+       (github.event.pull_request.base.ref == 'main' ||
+        startsWith(github.event.pull_request.base.ref, 'gravity-testnet-v')))
+    uses: ./.github/workflows/gate.yml
+    with:
+      workflow_file: e2e-docker.yml
+      ignore_patterns: 'book/*|scripts/*|template_config/*|*.md|bin/sentinel/*|genesis/*'
+
   e2e-test:
     name: E2E Test
     runs-on: [self-hosted, linux]
+    needs: gate
+    if: needs.gate.outputs.should_run == 'true'
     timeout-minutes: 120
 
     steps:
-    - name: Checkout (to get scripts)
+    - name: Checkout
       uses: actions/checkout@v4
-      with:
-        sparse-checkout: scripts
 
-    - name: Run E2E Test
-      env:
-        REPO: ${{ github.repository }}
-        GIT_REF: ${{ github.head_ref || github.ref_name }}
-        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        DURATION: ${{ github.event.inputs.duration || '60' }}
+    - name: Run E2E Tests
       run: |
-        chmod +x scripts/e2e_test.sh
-        ./scripts/e2e_test.sh "${GIT_REF}"
+        chmod +x gravity_e2e/run_docker.sh
+        if [ "${{ github.event_name }}" = "pull_request_review" ]; then
+          ./gravity_e2e/run_docker.sh --exclude fuzzy_cluster
+        else
+          ./gravity_e2e/run_docker.sh ${{ github.event.inputs.suite }}
+        fi

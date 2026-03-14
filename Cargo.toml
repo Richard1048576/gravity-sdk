@@ -17,11 +17,13 @@ members = [
     # "crates/api-types",
     "bin/bench",
     "bin/gravity_cli",
-    "bin/gravity_node", 
+    "bin/gravity_node",
+    "bin/sentinel", 
     "crates/block-buffer-manager",
     "crates/txn_metrics",
     "crates/build-info",
-    "crates/gravity-sdk"
+    "crates/gravity-sdk",
+    "crates/proposer-reth-map"
 ]
 exclude = [
     "external"
@@ -73,7 +75,7 @@ unexpected_cfgs = { level = "allow", check-cfg = ["cfg(mirai)"] }
 aptos-consensus = { path = "./aptos-core/consensus" }
 
 #  from aptos =======================
-gaptos = { git = "https://github.com/Galxe/gravity-aptos.git", rev = "977f5b9388183c8a14c0ddcb4e2ac9f265d45184" }
+gaptos = { git = "https://github.com/Galxe/gravity-aptos.git", rev = "c7444b0911d8dc656fbc083836f237038fe9fc5a" }
 aptos-executor-types = { path = "dependencies/aptos-executor-types" }
 aptos-executor = { path = "dependencies/aptos-executor" }
 api = { path = "./crates/api" }
@@ -86,6 +88,7 @@ aptos-mempool = { path = "./aptos-core/mempool", features = ["fuzzing"] }
 aptos-safety-rules = { path = "./aptos-core/consensus/safety-rules" }
 block-buffer-manager = { path = "./crates/block-buffer-manager" }
 build-info = { path = "./crates/build-info" }
+proposer-reth-map = { path = "./crates/proposer-reth-map" }
 
 # from aptos =======================
 
@@ -497,3 +500,5 @@ serde-reflection = { git = "https://github.com/aptos-labs/serde-reflection", rev
 merlin = { git = "https://github.com/aptos-labs/merlin" }
 tonic = { git = "https://github.com/aptos-labs/tonic.git", rev = "0da1ba8b1751d6e19eb55be24cccf9ae933c666e" }
 darling = { git = "https://github.com/TedDriggs/darling.git", rev = "v0.20.10"}
+alloy-tx-macros = { git = "https://github.com/alloy-rs/alloy", tag = "v1.0.37" }
+

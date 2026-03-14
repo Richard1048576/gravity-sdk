@@ -132,7 +132,7 @@ prop_compose! {
         block in arb_block(),
         next_epoch_state in arb_epoch_state(),
     ) -> VoteProposal {
-        VoteProposal::new(block, next_epoch_state, true) // decoupled_execution must be true
+        VoteProposal::new(block, next_epoch_state, false)
     }
 }
 
@@ -206,10 +206,11 @@ prop_compose! {
             validator_infos,
         );
         if include_epoch_state {
-            Some(EpochState {
-                epoch,
-                verifier: Arc::new(verifier),
-            })
+            todo!()
+            // Some(EpochState {
+            //     epoch,
+            //     verifier
+            // })
         } else {
             None
         }

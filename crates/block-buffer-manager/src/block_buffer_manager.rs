@@ -126,6 +126,10 @@ pub enum BlockState {
         id: BlockId,
         persist_notifier: Option<Sender<()>>,
     },
+    /// Historical block recovered from storage, only has block id
+    Historical {
+        id: BlockId,
+    },
 }
 
 impl BlockState {
@@ -134,6 +138,7 @@ impl BlockState {
             BlockState::Ordered { block, .. } => block.block_meta.block_id,
             BlockState::Computed { id, .. } => *id,
             BlockState::Committed { id, .. } => *id,
+            BlockState::Historical { id } => *id,
         }
     }
 }
@@ -269,27 +274,21 @@ impl BlockBufferManager {
                 *block_number_to_block_id_with_epoch.get(&latest_commit_block_number).unwrap();
             block_state_machine.blocks.insert(
                 BlockKey::new(commit_block_epoch, latest_commit_block_number),
-                BlockState::Committed {
-                    hash: None,
-                    compute_result: StateComputeResult::new(
-                        ComputeRes {
-                            data: [0; 32],
-                            txn_num: 0,
-                            txn_status: Arc::new(None),
-                            events: vec![],
-                        },
-                        None,
-                        None,
-                    ),
-                    id: commit_block_id,
-                    persist_notifier: None,
-                },
+                BlockState::Historical { id: commit_block_id },
             );
             *self.latest_epoch_change_block_number.lock().await = latest_commit_block_number;
         }
         self.buffer_state.store(BufferState::Ready as u8, Ordering::SeqCst);
         // Notify all waiters that buffer is ready
         self.ready_notifier.notify_waiters();
+    }
+
+    /// Update the current epoch. Called by EpochManager at start to set the correct epoch
+    /// from epoch_state after reconfig notification.
+    pub async fn init_epoch(&self, epoch: u64) {
+        info!("init_epoch: updating current_epoch to {}", epoch);
+        let mut block_state_machine = self.block_state_machine.lock().await;
+        block_state_machine.current_epoch = epoch;
     }
 
     // Helper method to wait for changes
@@ -376,7 +375,7 @@ impl BlockBufferManager {
         block: ExternalBlock,
     ) -> Result<(), anyhow::Error> {
         if !self.is_ready() {
-            panic!("Buffer is not ready");
+            self.ready_notifier.notified().await;
         }
         info!(
             "set_ordered_blocks {:?} num {:?} epoch {:?} parent_id {:?}",
@@ -449,7 +448,7 @@ impl BlockBufferManager {
             parent_id
         } else {
             // TODO(gravity_alex): assert epoch
-            warn!("set_ordered_blocks parent_id is not the same as actual_parent_id {:?} {:?}, might be epoch change", parent_id, actual_parent_id);
+            info!("set_ordered_blocks parent_id is not the same as actual_parent_id {:?} {:?}, might be epoch change", parent_id, actual_parent_id);
             actual_parent_id
         };
 
@@ -473,7 +472,7 @@ impl BlockBufferManager {
         expected_epoch: u64,
     ) -> Result<Vec<(ExternalBlock, BlockId)>, anyhow::Error> {
         if !self.is_ready() {
-            panic!("Buffer is not ready");
+            self.ready_notifier.notified().await;
         }
 
         if self.is_epoch_change() {
@@ -563,7 +562,7 @@ impl BlockBufferManager {
         epoch: u64,
     ) -> Result<StateComputeResult, anyhow::Error> {
         if !self.is_ready() {
-            panic!("Buffer is not ready");
+            self.ready_notifier.notified().await;
         }
         let start = Instant::now();
         info!("get_executed_res start {:?} num {:?}", block_id, block_num);
@@ -614,6 +613,12 @@ impl BlockBufferManager {
                         );
                         assert_eq!(id, &block_id);
                         return Ok(compute_result.clone());
+                    }
+                    BlockState::Historical { id } => {
+                        // Historical blocks don't have compute_result, this is an error case
+                        return Err(anyhow::anyhow!(
+                            "Cannot get executed result for historical block {id:?} num {block_num:?}"
+                        ));
                     }
                 }
             } else {
@@ -691,7 +696,7 @@ impl BlockBufferManager {
         events: Vec<GravityEvent>,
     ) -> Result<(), anyhow::Error> {
         if !self.is_ready() {
-            panic!("Buffer is not ready");
+            self.ready_notifier.notified().await;
         }
 
         let mut block_state_machine = self.block_state_machine.lock().await;
@@ -742,7 +747,7 @@ impl BlockBufferManager {
         epoch: u64,
     ) -> Result<Vec<Receiver<()>>, anyhow::Error> {
         if !self.is_ready() {
-            panic!("Buffer is not ready");
+            self.ready_notifier.notified().await;
         }
         let mut persist_notifiers = Vec::new();
         let mut block_state_machine = self.block_state_machine.lock().await;
@@ -797,6 +802,16 @@ impl BlockBufferManager {
                             block_id_num_hash.block_id, block_id_num_hash.num
                         );
                     }
+                    BlockState::Historical { id } => {
+                        // Historical blocks are already committed/persisted, just verify the id
+                        // matches
+                        if *id != block_id_num_hash.block_id {
+                            panic!(
+                                "Historical Block id mismatch: {:?} != {:?} num: {}",
+                                block_id_num_hash.block_id, *id, block_id_num_hash.num
+                            );
+                        }
+                    }
                 }
             } else {
                 panic!(
@@ -816,7 +831,7 @@ impl BlockBufferManager {
         epoch: u64,
     ) -> Result<Vec<BlockHashRef>, anyhow::Error> {
         if !self.is_ready() {
-            panic!("Buffer is not ready");
+            self.ready_notifier.notified().await;
         }
         info!("get_committed_blocks start_num: {:?} max_size: {:?}", start_num, max_size);
         let start = Instant::now();
@@ -907,7 +922,7 @@ impl BlockBufferManager {
 
     pub async fn block_number_to_block_id(&self) -> HashMap<u64, BlockId> {
         if !self.is_ready() {
-            panic!("Buffer is not ready when get block_number_to_block_id");
+            self.ready_notifier.notified().await;
         }
         let block_state_machine = self.block_state_machine.lock().await;
         block_state_machine.block_number_to_block_id.clone()

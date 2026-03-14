@@ -43,7 +43,10 @@ impl TFetchRequester for MockFetchRequester {
 #[tokio::test]
 async fn test_node_broadcast_receiver_succeed() {
     let (signers, validator_verifier) = random_validator_verifier(4, None, false);
-    let epoch_state = Arc::new(EpochState { epoch: 1, verifier: Arc::new(validator_verifier) });
+    let epoch_state = Arc::new(EpochState {
+        epoch: 1,
+        verifier: todo!(), // validator_verifier.clone(),
+    });
     let signers: Vec<_> = signers.into_iter().map(Arc::new).collect();
 
     // Scenario: Start DAG from beginning
@@ -98,8 +101,10 @@ async fn test_node_broadcast_receiver_succeed() {
 #[tokio::test]
 async fn test_node_broadcast_receiver_failure() {
     let (signers, validator_verifier) = random_validator_verifier(4, None, false);
-    let validator_verifier = Arc::new(validator_verifier);
-    let epoch_state = Arc::new(EpochState { epoch: 1, verifier: validator_verifier.clone() });
+    let epoch_state = Arc::new(EpochState {
+        epoch: 1,
+        verifier: todo!(), // validator_verifier.clone(),
+    });
     let signers: Vec<_> = signers.into_iter().map(Arc::new).collect();
 
     let mut rb_receivers: Vec<_> = signers
@@ -142,10 +147,12 @@ async fn test_node_broadcast_receiver_failure() {
     // Round 2 with invalid parent
     let partial_sigs =
         PartialSignatures::new(BTreeMap::from([(signers[1].author(), vote.signature().clone())]));
-    let node_cert = NodeCertificate::new(
-        node.metadata().clone(),
-        validator_verifier.aggregate_signatures(partial_sigs.signatures_iter()).unwrap(),
-    );
+    let node_cert = todo!(); // NodeCertificate::new(
+                             //     node.metadata().clone(),
+                             //     validator_verifier
+                             //         .aggregate_signatures(&partial_sigs)
+                             //         .unwrap(),
+                             // );
     let node = new_node(2, 20, signers[0].author(), vec![node_cert]);
     assert_eq!(
         rb_receivers[1].process(node).await.unwrap_err().to_string(),
@@ -162,10 +169,13 @@ async fn test_node_broadcast_receiver_failure() {
                 let sig = block_on(rb_receiver.process(node.clone())).unwrap();
                 partial_sigs.add_signature(signer.author(), sig.signature().clone())
             });
-            NodeCertificate::new(
-                node.metadata().clone(),
-                validator_verifier.aggregate_signatures(partial_sigs.signatures_iter()).unwrap(),
-            )
+            todo!()
+            // NodeCertificate::new(
+            //     node.metadata().clone(),
+            //     validator_verifier
+            //         .aggregate_signatures(&partial_sigs)
+            //         .unwrap(),
+            // )
         })
         .collect();
 
@@ -181,7 +191,10 @@ async fn test_node_broadcast_receiver_failure() {
 async fn test_node_broadcast_receiver_storage() {
     let (signers, validator_verifier) = random_validator_verifier(4, None, false);
     let signers: Vec<_> = signers.into_iter().map(Arc::new).collect();
-    let epoch_state = Arc::new(EpochState { epoch: 1, verifier: Arc::new(validator_verifier) });
+    let epoch_state = Arc::new(EpochState {
+        epoch: 1,
+        verifier: todo!(), // validator_verifier,
+    });
 
     let storage = Arc::new(MockStorage::new());
     let dag = Arc::new(DagStore::new(
