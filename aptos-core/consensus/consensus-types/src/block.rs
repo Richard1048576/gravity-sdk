@@ -76,7 +76,7 @@ impl Display for Block {
             self.author().map(|addr| format!("{}", addr)).unwrap_or_else(|| "(NIL)".to_string());
         write!(
             f,
-            "[id: {}, author: {}, epoch: {}, round: {:02}, parent_id: {}, timestamp: {}, block_number: {:?}, payload: {:?}]",
+            "[id: {}, author: {}, epoch: {}, round: {:02}, parent_id: {}, timestamp: {}, block_number: {:?}, payload_len: {}]",
             self.id,
             author,
             self.epoch(),
@@ -84,7 +84,7 @@ impl Display for Block {
             self.parent_id(),
             self.timestamp_usecs(),
             self.block_number(),
-            self.payload(),
+            self.payload().map_or(0, Payload::len),
         )
     }
 }
