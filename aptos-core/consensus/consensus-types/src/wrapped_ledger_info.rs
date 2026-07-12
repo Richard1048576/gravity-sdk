@@ -83,12 +83,9 @@ impl WrappedLedgerInfo {
 
     pub fn verify(&self, validator: &ValidatorVerifier) -> anyhow::Result<()> {
         // Genesis's QC is implicitly agreed upon, it doesn't have real signatures.
-        // If someone sends us a QC on a fake genesis, it'll fail to insert into BlockStore
-        // because of the round constraint.
-        //
-        // Use certified_block().round() (from vote_data) to align with QuorumCert::verify,
-        // preventing bypass via crafted ledger_info round.
-        if self.vote_data.proposed().round() == 0 {
+        // WrappedLedgerInfo may carry dummy vote_data for order votes, so only the
+        // signed ledger info can determine whether this is the genesis fast path.
+        if self.ledger_info().ledger_info().round() == 0 {
             ensure!(
                 self.ledger_info().get_num_voters() == 0,
                 "Genesis QC should not carry signatures"
