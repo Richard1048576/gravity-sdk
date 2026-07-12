@@ -24,12 +24,18 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
 
 DOCKER_IMAGE="rust:1.88.0-bookworm"
-ARGS="$@"
+ARGS=("$@")
 
 echo "===== Gravity E2E Docker Runner ====="
 echo "Repo Root: $REPO_ROOT"
 echo "Image: $DOCKER_IMAGE"
-echo "Args: ${ARGS:-<all suites>}"
+if [ ${#ARGS[@]} -gt 0 ]; then
+    printf "Args:"
+    printf " %q" "${ARGS[@]}"
+    printf "\n"
+else
+    echo "Args: <all suites>"
+fi
 echo "======================================"
 
 # Pipe repo into container via tar (no volume mount, no permission issues)
@@ -87,8 +93,8 @@ echo '===== Phase 3: Running E2E Tests ====='
 echo '[Step 7] Running runner.py...'
 export PYTHONPATH=/app:/app/gravity_e2e:\$PYTHONPATH
 cd /app/gravity_e2e
-python3 runner.py --force-init --exclude long_test $ARGS
+python3 runner.py --force-init --exclude long_test \"\$@\"
 
 echo ''
 echo '===== E2E Tests Completed Successfully ====='
-"
+" bash "${ARGS[@]}"
