@@ -51,7 +51,7 @@ full_node_networks:
       type: "${NETWORK_IDENTITY_TYPE}"
       ${NETWORK_IDENTITY_FIELD}: ${NETWORK_IDENTITY_VALUE}
 ${DISCOVERY_METHOD_FULLNODE_BLOCK}
-    mutual_authentication: false
+    mutual_authentication: true
 
 storage:
   dir: "${STORAGE_DIR}"
