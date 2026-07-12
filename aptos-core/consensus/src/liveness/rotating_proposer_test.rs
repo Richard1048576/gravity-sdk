@@ -44,6 +44,19 @@ fn test_rotating_proposer_with_three_contiguous_rounds() {
 }
 
 #[test]
+fn test_rotating_proposer_with_zero_contiguous_rounds() {
+    let chosen_author = AccountAddress::random();
+    let another_author = AccountAddress::random();
+    let proposers = vec![chosen_author, another_author];
+    let pe = RotatingProposer::new(proposers, 0);
+
+    assert!(!pe.is_valid_proposer(chosen_author, 1));
+    assert!(pe.is_valid_proposer(another_author, 1));
+    assert_eq!(pe.get_valid_proposer(1), another_author);
+    assert_eq!(pe.get_valid_proposer(2), chosen_author);
+}
+
+#[test]
 fn test_fixed_proposer() {
     let chosen_author = AccountAddress::random();
     let another_author = AccountAddress::random();
