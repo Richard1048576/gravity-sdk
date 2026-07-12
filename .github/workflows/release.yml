@@ -48,13 +48,25 @@ jobs:
       RUSTFLAGS: "--cfg tokio_unstable"
 
     steps:
+      - name: Validate dispatch tag
+        if: github.event_name == 'workflow_dispatch'
+        shell: bash
+        env:
+          INPUT_TAG: ${{ inputs.tag }}
+        run: |
+          set -euo pipefail
+          if ! echo "$INPUT_TAG" | grep -Eq '^v[0-9]+\.[0-9]+\.[0-9]+([-.][0-9A-Za-z][0-9A-Za-z.-]*)?$'; then
+            echo "tag must match v*.*.* (e.g. v1.7.0, v1.7.0-rc1): $INPUT_TAG" >&2
+            exit 1
+          fi
+
       - name: Checkout
         uses: actions/checkout@v4
         with:
-          # For workflow_dispatch, check out the user-specified tag instead of
-          # the branch where the dispatch was triggered. For push/PR, fall back
-          # to the default ref (the tag or PR head).
-          ref: ${{ github.event_name == 'workflow_dispatch' && inputs.tag || github.ref }}
+          # For workflow_dispatch, check out the fully-qualified tag ref instead
+          # of an unqualified user input that could be shadowed by a branch. For
+          # push/PR, fall back to the default ref (the tag or PR head).
+          ref: ${{ github.event_name == 'workflow_dispatch' && format('refs/tags/{0}', inputs.tag) || github.ref }}
 
       - name: Show build environment
         # Logs runner OS / glibc / rustc so any future divergence from
@@ -158,7 +170,7 @@ jobs:
           else
             TAG="${GITHUB_REF##refs/tags/}"
           fi
-          if ! echo "$TAG" | grep -Eq '^v[0-9]+\.[0-9]+\.[0-9]+'; then
+          if ! echo "$TAG" | grep -Eq '^v[0-9]+\.[0-9]+\.[0-9]+([-.][0-9A-Za-z][0-9A-Za-z.-]*)?$'; then
             echo "tag must match v*.*.* (e.g. v1.7.0, v1.7.0-rc1): $TAG" >&2
             exit 1
           fi
