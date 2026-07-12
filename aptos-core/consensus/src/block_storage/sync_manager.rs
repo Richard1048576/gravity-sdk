@@ -400,11 +400,10 @@ impl BlockStore {
             .unzip();
 
         if blocks.is_empty() {
-            info!(
-                "[Fast_Forward_sync] all fetched blocks at or below local HCC round {}, nothing to sync",
+            bail!(
+                "[Fast_Forward_sync] all fetched blocks at or below local HCC round {}, retrying epoch sync",
                 hcc_round
             );
-            return Ok(());
         }
 
         for (i, (block, _, _)) in blocks.iter().enumerate() {
@@ -434,11 +433,10 @@ impl BlockStore {
         )?;
 
         if ledger_infos.is_empty() {
-            info!(
-                "[Fast_Forward_sync] no ledger_infos returned, skipping rebuild (epoch {})",
+            bail!(
+                "[Fast_Forward_sync] no ledger_infos returned for epoch {}, retrying epoch sync",
                 epoch
             );
-            return Ok(());
         }
 
         ledger_infos.reverse();
