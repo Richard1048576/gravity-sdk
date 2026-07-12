@@ -37,7 +37,7 @@ jobs:
           # values (e.g. branch names) can't be interpolated directly into
           # the inline script. See GH Actions script-injection hardening.
           EVENT_NAME: ${{ github.event_name }}
-          PR_BRANCH: ${{ github.event.pull_request.head.ref }}
+          PR_SHA: ${{ github.event.pull_request.head.sha }}
           PR_NUMBER: ${{ github.event.pull_request.number }}
           REPO: ${{ github.repository }}
           WF: ${{ inputs.workflow_file }}
@@ -48,56 +48,32 @@ jobs:
             exit 0
           fi
 
-          # Candidates are workflow runs on the same branch, but "same branch"
-          # alone is not a safe duplicate key: a reused branch name (e.g. a
-          # prior PR's branch that was force-pushed for a new PR) would match
-          # stale runs from a different PR. So for each candidate run we ask
-          # `commits/{head_sha}/pulls` whether the current PR number is
-          # associated with that SHA — only then is it a real duplicate of
-          # this PR.
-          belongs_to_pr() {
-            local sha="$1"
-            local count
-            count=$(gh api "repos/${REPO}/commits/${sha}/pulls" \
-              --jq "[.[]? | select(.number == ${PR_NUMBER})] | length" 2>/dev/null || echo 0)
-            [ "${count:-0}" -gt 0 ]
-          }
+          # Only the exact PR head SHA is a safe duplicate key. Branch names are
+          # attacker-controlled and branch-wide history can include stale runs
+          # from previous commits, so do not query or match by branch name here.
+          RUN_PAIRS=$(gh api \
+            "repos/${REPO}/actions/workflows/${WF}/runs?event=pull_request&per_page=100" \
+            --jq "[.workflow_runs[] | select(.id != ${THIS_RUN} and .head_sha == \"${PR_SHA}\" and (.status == \"in_progress\" or .conclusion == \"success\"))] | .[] | \"\(.id) \(.status) \(.conclusion // \"\")\"")
 
-          # In-progress runs whose head_sha belongs to this PR
-          IN_PROGRESS_PAIRS=$(gh api \
-            "repos/${REPO}/actions/workflows/${WF}/runs?branch=${PR_BRANCH}" \
-            --jq "[.workflow_runs[] | select(.id != ${THIS_RUN} and .status == \"in_progress\")] | .[] | \"\(.id) \(.head_sha)\"")
-
-          while IFS=' ' read -r RUN_ID HEAD_SHA; do
+          HAS_REAL_SUCCESS=false
+          while IFS=' ' read -r RUN_ID STATUS CONCLUSION; do
             [ -z "$RUN_ID" ] && continue
-            if belongs_to_pr "$HEAD_SHA"; then
-              echo "CI already in progress for PR #${PR_NUMBER} (run #${RUN_ID}, sha ${HEAD_SHA}). Skipping."
+            if [ "$STATUS" = "in_progress" ]; then
+              echo "CI already in progress for PR #${PR_NUMBER} (run #${RUN_ID}, sha ${PR_SHA}). Skipping."
               echo "should_run=false" >> $GITHUB_OUTPUT
               exit 0
             fi
-          done <<< "$IN_PROGRESS_PAIRS"
 
-          # Successful runs whose head_sha belongs to this PR — and only
-          # count runs where real test jobs actually executed (not just gate
-          # + skipped downstream jobs).
-          SUCCESSFUL_PAIRS=$(gh api \
-            "repos/${REPO}/actions/workflows/${WF}/runs?branch=${PR_BRANCH}" \
-            --jq "[.workflow_runs[] | select(.id != ${THIS_RUN} and .conclusion == \"success\")] | .[] | \"\(.id) \(.head_sha)\"")
-
-          HAS_REAL_SUCCESS=false
-          while IFS=' ' read -r RUN_ID HEAD_SHA; do
-            [ -z "$RUN_ID" ] && continue
-            belongs_to_pr "$HEAD_SHA" || continue
-
+            [ "$CONCLUSION" = "success" ] || continue
             REAL_JOBS=$(gh api \
               "repos/${REPO}/actions/runs/${RUN_ID}/jobs" \
               --jq '[.jobs[] | select(.conclusion == "success" and (.name | test("(?i)gate") | not))] | length')
             if [ "$REAL_JOBS" -gt "0" ]; then
-              echo "Found previous run #${RUN_ID} (sha ${HEAD_SHA}) on PR #${PR_NUMBER} with real test execution."
+              echo "Found previous run #${RUN_ID} for current PR head sha ${PR_SHA} with real test execution."
               HAS_REAL_SUCCESS=true
               break
             fi
-          done <<< "$SUCCESSFUL_PAIRS"
+          done <<< "$RUN_PAIRS"
 
           if [ "$HAS_REAL_SUCCESS" = "true" ]; then
             echo "CI already passed for PR #${PR_NUMBER}. Skipping."
