@@ -442,11 +442,17 @@ impl Mempool {
             !exclude_transactions.contains_key(&summary)
         });
         let mut transactions = vec![];
+        let mut total_bytes = 0u64;
         let best_txns = self.pool.best_txns(Some(filter), max_txns as usize);
         for txn in best_txns {
             let signed_txn = VerifiedTxn::from(txn).into();
+            let txn_bytes = signed_txn.raw_txn_bytes_len() as u64;
+            if total_bytes + txn_bytes > max_bytes {
+                break;
+            }
+            total_bytes += txn_bytes;
             transactions.push(signed_txn);
-            if transactions.len() >= max_txns as usize || transactions.len() >= max_bytes as usize {
+            if transactions.len() >= max_txns as usize {
                 break;
             }
         }
@@ -490,6 +496,12 @@ mod tests {
         ApiVerifiedTxn::new(bytes, mk_addr(addr_last), seq, ExternalChainId::new(1))
     }
 
+    fn mk_txn_with_size(addr_last: u8, seq: u64, body_seed: u8, size: usize) -> ApiVerifiedTxn {
+        // Distinct body_seed values produce distinct hashes via install_hasher().
+        let bytes = vec![body_seed; size];
+        ApiVerifiedTxn::new(bytes, mk_addr(addr_last), seq, ExternalChainId::new(1))
+    }
+
     fn mempool_with(
         txns: Arc<StdMutex<Vec<ApiVerifiedTxn>>>,
         ttl: Duration,
@@ -501,10 +513,27 @@ mod tests {
         impl TxPool for Shared {
             fn best_txns(
                 &self,
-                _f: Option<Box<dyn Fn((ExternalAccountAddress, u64, TxnHash)) -> bool>>,
-                _l: usize,
+                f: Option<Box<dyn Fn((ExternalAccountAddress, u64, TxnHash)) -> bool>>,
+                l: usize,
             ) -> Box<dyn Iterator<Item = ApiVerifiedTxn>> {
-                Box::new(std::iter::empty())
+                let txns: Vec<_> = self
+                    .0
+                    .lock()
+                    .unwrap()
+                    .clone()
+                    .into_iter()
+                    .filter(move |txn| {
+                        f.as_ref().map_or(true, |filter| {
+                            filter((
+                                *txn.sender(),
+                                txn.seq_number(),
+                                TxnHash::from_bytes(txn.committed_hash().as_slice()),
+                            ))
+                        })
+                    })
+                    .take(l)
+                    .collect();
+                Box::new(txns.into_iter())
             }
             fn get_broadcast_txns(
                 &self,
@@ -545,6 +574,21 @@ mod tests {
             prio,
         )
         .0
+    }
+
+    #[test]
+    fn get_batch_enforces_max_bytes() {
+        let txns = Arc::new(StdMutex::new(vec![
+            mk_txn_with_size(0, 0, 40, 100),
+            mk_txn_with_size(1, 0, 41, 100),
+            mk_txn_with_size(2, 0, 42, 100),
+        ]));
+        let m = mempool_with(txns, Duration::from_secs(60), Duration::from_millis(20), 1);
+
+        let batch = m.get_batch_inner(3, 150, true, BTreeMap::new());
+
+        assert_eq!(batch.len(), 1);
+        assert!(batch.iter().map(|txn| txn.raw_txn_bytes_len() as u64).sum::<u64>() <= 150);
     }
 
     #[test]
