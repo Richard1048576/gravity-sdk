@@ -68,6 +68,7 @@ use tokio_retry::strategy::ExponentialBackoff;
 pub const COMMIT_VOTE_BROADCAST_INTERVAL_MS: u64 = 1500;
 pub const COMMIT_VOTE_REBROADCAST_INTERVAL_MS: u64 = 30000;
 pub const LOOP_INTERVAL_MS: u64 = 1500;
+const MAX_BLOCK_IDS_PER_COMMIT_VOTE_CACHE_ROUND_MULTIPLIER: usize = 2;
 
 #[derive(Debug, Default)]
 pub struct ResetAck {}
@@ -203,6 +204,14 @@ fn classify_commit_vote_round(
     } else {
         CommitVoteRoundClass::InWindow
     }
+}
+
+fn can_cache_commit_vote_for_block(
+    round_cache: &HashMap<HashValue, HashMap<HashValue, CommitVote>>,
+    block_id: &HashValue,
+    max_block_ids_per_round: usize,
+) -> bool {
+    round_cache.contains_key(block_id) || round_cache.len() < max_block_ids_per_round
 }
 
 impl BufferManager {
@@ -427,10 +436,27 @@ impl BufferManager {
             CommitVoteRoundClass::InWindow => {}
         }
 
-        self.commit_vote_cache
-            .entry(round)
-            .or_default()
-            .entry(commit_info.id())
+        let max_block_ids_per_round = self
+            .epoch_state
+            .verifier
+            .get_ordered_account_addresses_iter()
+            .count()
+            .saturating_mul(MAX_BLOCK_IDS_PER_COMMIT_VOTE_CACHE_ROUND_MULTIPLIER)
+            .max(1);
+        let block_id = commit_info.id();
+        let round_cache = self.commit_vote_cache.entry(round).or_default();
+        if !can_cache_commit_vote_for_block(round_cache, &block_id, max_block_ids_per_round) {
+            warn!(
+                round = round,
+                block_id = block_id,
+                max_block_ids_per_round = max_block_ids_per_round,
+                "Received a commit vote for too many distinct block ids in the same round, ignored.",
+            );
+            return false;
+        }
+
+        round_cache
+            .entry(block_id)
             .or_default()
             .insert(HashValue::new(*vote.author()), vote);
         true
@@ -1181,7 +1207,11 @@ fn reply_nack(protocol: ProtocolId, response_sender: oneshot::Sender<Result<Byte
 
 #[cfg(test)]
 mod commit_vote_round_class_tests {
-    use super::{classify_commit_vote_round, CommitVoteRoundClass};
+    use super::{
+        can_cache_commit_vote_for_block, classify_commit_vote_round, CommitVoteRoundClass,
+    };
+    use gaptos::aptos_crypto::HashValue;
+    use std::collections::HashMap;
 
     // highest_committed_round = 10, window = 5  ->  max_cached_round = 15.
     const HCR: u64 = 10;
@@ -1239,6 +1269,23 @@ mod commit_vote_round_class_tests {
         assert_eq!(
             classify_commit_vote_round(HCR, HCR, HCR),
             CommitVoteRoundClass::AlreadyCommitted
+        );
+    }
+
+    #[test]
+    fn commit_vote_cache_rejects_new_block_ids_after_per_round_limit() {
+        let known_block_id = HashValue::random();
+        let other_block_id = HashValue::random();
+        let mut round_cache = HashMap::new();
+        round_cache.insert(known_block_id, HashMap::new());
+
+        assert!(
+            can_cache_commit_vote_for_block(&round_cache, &known_block_id, 1),
+            "additional votes for an already cached block id should still be accepted",
+        );
+        assert!(
+            !can_cache_commit_vote_for_block(&round_cache, &other_block_id, 1),
+            "new block ids should be rejected once the per-round block-id cap is reached",
         );
     }
 }
