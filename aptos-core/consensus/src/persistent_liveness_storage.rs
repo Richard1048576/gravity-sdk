@@ -25,10 +25,9 @@ use gaptos::{
     aptos_logger::prelude::*,
     aptos_storage_interface::DbReader,
     aptos_types::{
-        aggregate_signature::AggregateSignature,
         block_info::{BlockInfo, Round, GENESIS_ROUND},
         epoch_change::EpochChangeProof,
-        ledger_info::{LedgerInfo, LedgerInfoWithSignatures},
+        ledger_info::LedgerInfoWithSignatures,
         on_chain_config::ValidatorSet,
         proof::TransactionAccumulatorSummary,
         transaction::Version,
@@ -266,100 +265,27 @@ pub struct RecoveryData {
 }
 
 impl RecoveryData {
-    fn make_placeholder_commit_cert(root_block: &Block) -> WrappedLedgerInfo {
-        let commit_info = root_block.gen_block_info(*ACCUMULATOR_PLACEHOLDER_HASH, 0, None);
-        let vote_data = VoteData::new(commit_info.clone(), commit_info.clone());
-        let li = LedgerInfo::new(commit_info, vote_data.hash());
-        WrappedLedgerInfo::new(
-            vote_data,
-            LedgerInfoWithSignatures::new(li, AggregateSignature::empty()),
-        )
-    }
-
-    pub fn find_root_by_block_number(
-        execution_latest_block_num: u64,
-        blocks: &mut Vec<Block>,
-        quorum_certs: &mut Vec<QuorumCert>,
-        order_vote_enabled: bool,
-    ) -> Result<RootInfo> {
-        // sort by (epoch, round) to guarantee the topological order of parent <- child
-        blocks.sort_by_key(|b| (b.epoch(), b.round()));
-        let root_idx = blocks
-            .iter()
-            .position(|block| match block.block_number() {
-                Some(block_number) => block_number == execution_latest_block_num,
-                None => false,
-            })
-            .ok_or_else(|| {
-                format_err!("unable to find block_number: {}", execution_latest_block_num)
-            })?;
-        let root_block = blocks.remove(root_idx);
-        let root_quorum_cert = quorum_certs
-            .iter()
-            .find(|qc| qc.certified_block().id() == root_block.id())
-            .ok_or_else(|| format_err!("No QC found for root: {}", root_block.id()))?
-            .clone();
-        let (root_ordered_cert, root_commit_cert) = if order_vote_enabled {
-            let root_ordered_cert =
-                WrappedLedgerInfo::new(VoteData::dummy(), root_quorum_cert.ledger_info().clone());
-            (root_ordered_cert.clone(), root_ordered_cert)
-        } else {
-            match quorum_certs.iter().find(|qc| qc.commit_info().id() == root_block.id()) {
-                Some(qc) => {
-                    let root_ordered_cert = qc.clone().into_wrapped_ledger_info();
-                    let root_commit_cert = root_ordered_cert
-                        .create_merged_with_executed_state(
-                            root_ordered_cert.ledger_info().clone(),
-                        )
-                        .expect(
-                            "Inconsistent commit proof and evaluation decision, cannot commit block",
-                        );
-                    (root_ordered_cert, root_commit_cert)
-                }
-                None => {
-                    warn!(
-                        "No explicit commit LI for root {} (block_number={}), \
-                         constructing placeholder commit cert",
-                        root_block.id(),
-                        execution_latest_block_num,
-                    );
-                    let placeholder = Self::make_placeholder_commit_cert(&root_block);
-                    (placeholder.clone(), placeholder)
-                }
-            }
-        };
-        info!("Consensus root block is {}", root_block);
-        Ok(RootInfo(Box::new(root_block), root_quorum_cert, root_ordered_cert, root_commit_cert))
-    }
-
     pub fn new(
         last_vote: Option<Vote>,
         ledger_recovery_data: LedgerRecoveryData,
-        execution_latest_block_num: u64,
+        _execution_latest_block_num: u64,
         mut blocks: Vec<Block>,
         mut quorum_certs: Vec<QuorumCert>,
         highest_2chain_timeout_cert: Option<TwoChainTimeoutCertificate>,
         order_vote_enabled: bool,
-        has_root: bool,
+        _has_root: bool,
     ) -> Result<Self> {
         info!("blocks in db: {:?}", blocks.len());
         info!("quorum certs in db: {:?}", quorum_certs.len());
 
-        let root;
-        if has_root {
-            root = Self::find_root_by_block_number(
-                execution_latest_block_num,
-                &mut blocks,
-                &mut quorum_certs,
-                order_vote_enabled,
-            )?;
-        } else {
-            root = ledger_recovery_data.find_root(
-                &mut blocks,
-                &mut quorum_certs,
-                order_vote_enabled,
-            )?;
-        }
+        // Always recover the root from the authenticated ledger info instead of using
+        // persisted Block.block_number metadata. The block number is local recovery metadata and
+        // is not part of the signed BlockData, so it must not select the consensus root.
+        let root = ledger_recovery_data.find_root(
+            &mut blocks,
+            &mut quorum_certs,
+            order_vote_enabled,
+        )?;
         let blocks_to_prune = Some(vec![]);
         let epoch = root.0.epoch();
         Ok(RecoveryData {
@@ -583,8 +509,7 @@ impl PersistentLivenessStorage for StorageWriteProxy {
             }
             Err(e) => {
                 error!(error = ?e, "Failed to construct recovery data");
-                panic!(""); // TODO(gravity_lightman)
-                            // LivenessStorageData::PartialRecoveryData(ledger_recovery_data)
+                LivenessStorageData::PartialRecoveryData(ledger_recovery_data)
             }
         }
     }
