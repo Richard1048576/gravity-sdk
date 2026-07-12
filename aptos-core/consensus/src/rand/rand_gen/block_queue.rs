@@ -51,6 +51,32 @@ impl QueueItem {
         self.blocks().last().unwrap().block().round()
     }
 
+    fn drop_prefix_through_round(&mut self, round: Round) {
+        let num_stale_blocks =
+            self.blocks().iter().take_while(|block| block.round() <= round).count();
+        if num_stale_blocks == 0 {
+            return;
+        }
+
+        self.ordered_blocks.ordered_blocks.drain(..num_stale_blocks);
+        if let Some(broadcast_handle) = self.broadcast_handle.as_mut() {
+            broadcast_handle.drain(..num_stale_blocks);
+        }
+        self.rebuild_indexes();
+    }
+
+    fn rebuild_indexes(&mut self) {
+        self.offsets_by_round = self
+            .ordered_blocks
+            .ordered_blocks
+            .iter()
+            .enumerate()
+            .map(|(idx, b)| (b.round(), idx))
+            .collect();
+        self.num_undecided_blocks =
+            self.ordered_blocks.ordered_blocks.iter().filter(|b| !b.has_randomness()).count();
+    }
+
     pub fn offset(&self, round: Round) -> usize {
         *self.offsets_by_round.get(&round).expect("Round should be in the queue")
     }
@@ -99,26 +125,35 @@ impl BlockQueue {
         &self.queue
     }
 
-    pub fn push_back(&mut self, item: QueueItem) {
+    pub fn push_back(&mut self, mut item: QueueItem) {
         let first_round = item.first_round();
         let last_round = item.last_round();
-        if self
-            .highest_dequeued_round
-            .is_some_and(|highest_dequeued_round| first_round <= highest_dequeued_round)
-        {
-            error!(
-                "Dropping stale ordered blocks pushed to rand manager: first_round={}, last_round={}, highest_dequeued_round={}",
-                first_round,
-                last_round,
-                self.highest_dequeued_round.unwrap_or_default(),
-            );
-            return;
+        if let Some(highest_dequeued_round) = self.highest_dequeued_round {
+            if last_round <= highest_dequeued_round {
+                error!(
+                    "Dropping stale ordered blocks pushed to rand manager: first_round={}, last_round={}, highest_dequeued_round={}",
+                    first_round,
+                    last_round,
+                    highest_dequeued_round,
+                );
+                return;
+            }
+
+            if first_round <= highest_dequeued_round {
+                error!(
+                    "Trimming stale ordered blocks pushed to rand manager: first_round={}, last_round={}, highest_dequeued_round={}",
+                    first_round,
+                    last_round,
+                    highest_dequeued_round,
+                );
+                item.drop_prefix_through_round(highest_dequeued_round);
+            }
         }
 
         for block in item.blocks() {
             observe_block(block.timestamp_usecs(), BlockStage::RAND_ENTER);
         }
-        assert!(self.queue.insert(first_round, item).is_none());
+        assert!(self.queue.insert(item.first_round(), item).is_none());
     }
 
     /// Dequeue all ordered blocks prefix that have randomness
@@ -262,5 +297,28 @@ mod tests {
         assert_eq!(queue.queue.len(), 1);
         assert!(queue.set_randomness(2, Randomness::default()));
         assert_eq!(queue.dequeue_rand_ready_prefix().len(), 1);
+    }
+
+    #[test]
+    fn test_block_queue_trims_stale_prefix_from_overlapping_batch() {
+        let mut queue = BlockQueue::new();
+        queue.push_back(QueueItem::new(create_ordered_blocks(vec![1]), None));
+
+        assert!(queue.set_randomness(1, Randomness::default()));
+        assert_eq!(queue.dequeue_rand_ready_prefix().len(), 1);
+        assert_eq!(queue.queue.len(), 0);
+
+        queue.push_back(QueueItem::new(create_ordered_blocks(vec![1, 2]), None));
+        assert_eq!(queue.queue.len(), 1);
+        assert!(queue.item_mut(1).is_none());
+        assert!(queue.item_mut(2).is_some());
+        assert!(queue.set_randomness(2, Randomness::default()));
+
+        let ready = queue.dequeue_rand_ready_prefix();
+        assert_eq!(ready.len(), 1);
+        assert_eq!(
+            ready[0].ordered_blocks.iter().map(|block| block.round()).collect::<Vec<_>>(),
+            vec![2],
+        );
     }
 }
