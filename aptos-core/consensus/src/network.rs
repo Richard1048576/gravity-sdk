@@ -41,7 +41,6 @@ use gaptos::{
     aptos_channels::{self, aptos_channel, message_queues::QueueStyle},
     aptos_config::network_id::{NetworkId, PeerNetworkId},
     aptos_consensus::counters,
-    aptos_crypto::HashValue,
     aptos_logger::prelude::*,
     aptos_network::{
         application::interface::{NetworkClient, NetworkClientInterface, NetworkServiceEvents},
@@ -257,16 +256,14 @@ impl NetworkSender {
             ConsensusMsg::BlockRetrievalResponse(resp) => *resp,
             _ => return Err(anyhow!("Invalid response to request")),
         };
-        if retrieval_request.block_id() != HashValue::zero() {
-            response.verify(retrieval_request, &self.validators).map_err(|e| {
-                error!(
-                    SecurityEvent::InvalidRetrievedBlock,
-                    request_block_response = response,
-                    error = ?e,
-                );
-                e
-            })?;
-        }
+        response.verify(retrieval_request, &self.validators).map_err(|e| {
+            error!(
+                SecurityEvent::InvalidRetrievedBlock,
+                request_block_response = response,
+                error = ?e,
+            );
+            e
+        })?;
 
         Ok(response)
     }

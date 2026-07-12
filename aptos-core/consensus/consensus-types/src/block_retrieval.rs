@@ -135,26 +135,40 @@ impl BlockRetrievalResponse {
         sig_verifier: &ValidatorVerifier,
     ) -> anyhow::Result<()> {
         ensure!(
-            self.status != BlockRetrievalStatus::Succeeded ||
-                self.blocks.len() as u64 == retrieval_request.num_blocks(),
+            self.status != BlockRetrievalStatus::Succeeded
+                || self.blocks.len() as u64 == retrieval_request.num_blocks(),
             "not enough blocks returned, expect {}, get {}",
             retrieval_request.num_blocks(),
             self.blocks.len(),
         );
-        self.blocks
-            .iter()
-            .try_fold(retrieval_request.block_id(), |expected_id, (block, _, _)| {
+        if self.status == BlockRetrievalStatus::SucceededWithTarget {
+            let target_block_id = retrieval_request.target_block_id().ok_or_else(|| {
+                anyhow::anyhow!("target block id is required for SucceededWithTarget")
+            })?;
+            ensure!(
+                self.blocks.iter().any(|(block, _, _)| block.id() == target_block_id),
+                "target block {} not found in response",
+                target_block_id,
+            );
+        }
+
+        let mut expected_id = retrieval_request.block_id();
+        let skip_first_id_check =
+            expected_id == HashValue::zero() && retrieval_request.epoch().is_some();
+        for (index, (block, _, _)) in self.blocks.iter().enumerate() {
+            if !(skip_first_id_check && index == 0) {
                 ensure!(
                     block.id() == expected_id,
                     "blocks doesn't form a chain: expect {}, get {}",
                     expected_id,
                     block.id()
                 );
-                block.validate_signature(sig_verifier)?;
-                block.verify_well_formed()?;
-                Ok(block.parent_id())
-            })
-            .map(|_| ())
+            }
+            block.validate_signature(sig_verifier)?;
+            block.verify_well_formed()?;
+            expected_id = block.parent_id();
+        }
+        Ok(())
     }
 }
 
@@ -177,5 +191,39 @@ impl fmt::Display for BlockRetrievalResponse {
             }
             _ => write!(f, "[BlockRetrievalResponse: status: {:?}]", self.status()),
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn verify_rejects_succeeded_with_target_without_target_block() {
+        let request =
+            BlockRetrievalRequest::new_with_epoch(HashValue::zero(), 1, HashValue::random(), 2);
+        let response = BlockRetrievalResponse::new(
+            BlockRetrievalStatus::SucceededWithTarget,
+            vec![],
+            vec![],
+            vec![],
+        );
+        let verifier = ValidatorVerifier::new(vec![]);
+
+        assert!(response.verify(request, &verifier).is_err());
+    }
+
+    #[test]
+    fn verify_rejects_succeeded_with_target_without_request_target() {
+        let request = BlockRetrievalRequest::new(HashValue::zero(), 1);
+        let response = BlockRetrievalResponse::new(
+            BlockRetrievalStatus::SucceededWithTarget,
+            vec![],
+            vec![],
+            vec![],
+        );
+        let verifier = ValidatorVerifier::new(vec![]);
+
+        assert!(response.verify(request, &verifier).is_err());
     }
 }
