@@ -15,6 +15,9 @@ concurrency:
   group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.sha }}
   cancel-in-progress: false
 
+permissions:
+  contents: read
+
 jobs:
   # ==========================================================================
   # Gate – reusable approval + duplicate-run + changed-files check
@@ -39,14 +42,27 @@ jobs:
     timeout-minutes: 120
 
     steps:
-    - name: Checkout
+    - name: Checkout trusted workflow scripts
       uses: actions/checkout@v4
+      with:
+        ref: ${{ github.event.pull_request.base.sha || github.sha }}
+        persist-credentials: false
+
+    - name: Checkout pull request source
+      if: github.event_name == 'pull_request_review'
+      uses: actions/checkout@v4
+      with:
+        ref: ${{ github.event.pull_request.head.sha }}
+        path: pr-source
+        persist-credentials: false
 
     - name: Run E2E Tests
+      env:
+        PR_SOURCE_DIR: ${{ github.workspace }}/pr-source
       run: |
         chmod +x gravity_e2e/run_docker.sh
         if [ "${{ github.event_name }}" = "pull_request_review" ]; then
-          ./gravity_e2e/run_docker.sh --exclude fuzzy_cluster --exclude rolling_upgrade
+          GRAVITY_E2E_SOURCE_DIR="$PR_SOURCE_DIR" ./gravity_e2e/run_docker.sh --exclude fuzzy_cluster --exclude rolling_upgrade
         else
           ./gravity_e2e/run_docker.sh ${{ github.event.inputs.suite }}
         fi
