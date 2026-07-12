@@ -275,3 +275,25 @@ fn test_deserialize_ignores_untrusted_block_number() {
     assert_eq!(decoded.block_number(), None);
     assert_eq!(decoded.id(), block.id());
 }
+
+#[test]
+fn test_block_display_redacts_payload_contents() {
+    let signer = ValidatorSigner::random(None);
+    let quorum_cert = certificate_for_genesis();
+    let block = Block::new_proposal(
+        random_payload(2),
+        1,
+        gaptos::aptos_infallible::duration_since_epoch().as_micros() as u64,
+        quorum_cert,
+        &signer,
+        Vec::new(),
+    )
+    .unwrap();
+
+    let block_display = format!("{}", block);
+    let block_debug = format!("{:?}", block);
+
+    assert!(block_display.contains("payload_len: 2"));
+    assert!(!block_display.contains("DirectMempool"));
+    assert!(!block_debug.contains("DirectMempool"));
+}
