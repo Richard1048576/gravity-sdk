@@ -11,7 +11,7 @@ use gaptos::{
     aptos_types::{ledger_info::LedgerInfoWithSignatures, validator_verifier::ValidatorVerifier},
 };
 use serde::{Deserialize, Serialize};
-use std::fmt;
+use std::{collections::HashMap, fmt};
 
 pub const NUM_RETRIES: usize = 5;
 pub const NUM_PEERS_PER_RETRY: usize = 1;
@@ -135,12 +135,46 @@ impl BlockRetrievalResponse {
         sig_verifier: &ValidatorVerifier,
     ) -> anyhow::Result<()> {
         ensure!(
-            self.status != BlockRetrievalStatus::Succeeded ||
-                self.blocks.len() as u64 == retrieval_request.num_blocks(),
+            self.status != BlockRetrievalStatus::Succeeded
+                || self.blocks.len() as u64 == retrieval_request.num_blocks(),
             "not enough blocks returned, expect {}, get {}",
             retrieval_request.num_blocks(),
             self.blocks.len(),
         );
+        let returned_block_numbers = self
+            .blocks
+            .iter()
+            .filter_map(|(block, block_number, _)| {
+                block_number.map(|block_number| (block.id(), block_number))
+            })
+            .collect::<HashMap<_, _>>();
+
+        for ledger_info in &self.ledger_infos {
+            ledger_info.verify_signatures(sig_verifier)?;
+            ensure!(
+                retrieval_request
+                    .epoch()
+                    .map_or(true, |epoch| ledger_info.ledger_info().epoch() == epoch),
+                "ledger info epoch doesn't match request: expect {:?}, get {}",
+                retrieval_request.epoch(),
+                ledger_info.ledger_info().epoch(),
+            );
+            let consensus_block_id = ledger_info.ledger_info().consensus_block_id();
+            let block_number =
+                returned_block_numbers.get(&consensus_block_id).ok_or_else(|| {
+                    anyhow::anyhow!(
+                        "ledger info commits block {} that was not returned in the response",
+                        consensus_block_id,
+                    )
+                })?;
+            ensure!(
+                *block_number == ledger_info.ledger_info().block_number(),
+                "ledger info block number doesn't match returned block: expect {}, get {}",
+                block_number,
+                ledger_info.ledger_info().block_number(),
+            );
+        }
+
         self.blocks
             .iter()
             .try_fold(retrieval_request.block_id(), |expected_id, (block, _, _)| {
