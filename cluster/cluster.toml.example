@@ -21,16 +21,19 @@ repo = "https://github.com/Galxe/gravity_bench.git"
 ref = "main"
 
 # Cluster-level RPC settings (optional)
-# Defaults preserve current "open" behavior so dev / e2e / longtest stay unchanged.
-# For production-like clusters, narrow the lists:
+# HTTP defaults preserve current "open" behavior so dev / e2e / longtest stay unchanged.
+# For production-like clusters, narrow the HTTP list:
 #   http_corsdomain = "https://gravity.xyz,https://explorer.gravity.xyz"
 #   http_api        = "eth,net,trace,txpool,web3,rpc"   # drop debug
-# ws_origins / ws_api are consumed only by VFN nodes that opt in via per-node `ws_port`.
+# WebSocket settings are consumed only by nodes that opt in via per-node `ws_port`.
+# WS defaults bind to localhost, limit browser origins to localhost, and omit expensive debug/trace APIs.
+# Set ws_addr / ws_origins / ws_api explicitly only when you intend to expose WS remotely.
 [rpc]
 http_corsdomain = "*"
 http_api        = "debug,eth,net,trace,txpool,web3,rpc"
-ws_origins      = "*"
-ws_api          = "debug,eth,net,trace,txpool,web3,rpc"
+ws_addr         = "127.0.0.1"
+ws_origins      = "http://localhost,http://127.0.0.1"
+ws_api          = "eth,net,web3,rpc"
 
 # Node definitions
 # Role types:
