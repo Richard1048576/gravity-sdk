@@ -859,17 +859,32 @@ impl BlockBufferManager {
         if new_epoch_event.is_none() {
             return Ok(None);
         }
-        let new_epoch_event = new_epoch_event.unwrap();
-        let (new_epoch, bytes) = match new_epoch_event {
-            GravityEvent::NewEpoch(new_epoch, bytes) => (new_epoch, bytes),
-            _ => return Err(anyhow::anyhow!("New epoch event is not NewEpoch")),
+        let Some(GravityEvent::NewEpoch(new_epoch, bytes)) = new_epoch_event else {
+            return Ok(None);
         };
-        let api_validator_set = bcs::from_bytes::<
+        let api_validator_set = match bcs::from_bytes::<
             api_types::on_chain_config::validator_set::ValidatorSet,
         >(bytes)
-        .map_err(|e| format_err!("[on-chain config] Failed to deserialize into config: {e}"))?;
-        let validator_set = convert_validator_set(api_validator_set)
-            .map_err(|e| format_err!("[on-chain config] Failed to convert validator set: {e}"))?;
+        {
+            Ok(validator_set) => validator_set,
+            Err(e) => {
+                warn!(
+                    "[on-chain config] Failed to deserialize validator set from NewEpoch event at block {}: {}",
+                    block_num, e
+                );
+                return Ok(None);
+            }
+        };
+        let validator_set = match convert_validator_set(api_validator_set) {
+            Ok(validator_set) => validator_set,
+            Err(e) => {
+                warn!(
+                    "[on-chain config] Failed to convert validator set from NewEpoch event at block {}: {}",
+                    block_num, e
+                );
+                return Ok(None);
+            }
+        };
         info!(
             "block number {} get validator set from new epoch {} event {:?}",
             block_num, new_epoch, validator_set
