@@ -18,6 +18,8 @@ use gaptos::{
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;
 
+const MAX_CONSENSUS_RANGE_SCAN_RECORDS: usize = 10_000;
+
 #[derive(Serialize, Deserialize, Debug)]
 pub struct LedgerInfoResponse {
     pub epoch: u64,
@@ -113,27 +115,23 @@ pub fn get_ledger_info_by_epoch(
         }
     };
 
-    // Get all epoch by block number mappings
-    let all_epoch_blocks = match consensus_db.get_all::<EpochByBlockNumberSchema>() {
-        Ok(blocks) => blocks,
+    // Find the block number for the target epoch without materializing the full mapping.
+    let target_block_number = match consensus_db
+        .find::<EpochByBlockNumberSchema, _>(|(_, epoch_)| *epoch_ == epoch)
+    {
+        Ok(Some((block_number, _))) => block_number,
+        Ok(None) => {
+            error!("Cannot find block number for epoch {}", epoch);
+            return Err(error_response(
+                StatusCode::NOT_FOUND,
+                &format!("Cannot find block number for epoch {epoch}"),
+            ));
+        }
         Err(e) => {
             error!("Failed to get epoch by block number: {:?}", e);
             return Err(error_response(StatusCode::INTERNAL_SERVER_ERROR, "Internal server error"));
         }
     };
-
-    // Find the block number for the target epoch
-    let target_block_number = all_epoch_blocks
-        .into_iter()
-        .find(|(_, epoch_)| *epoch_ == epoch)
-        .map(|(block_number, _)| block_number)
-        .ok_or_else(|| {
-            error!("Cannot find block number for epoch {}", epoch);
-            error_response(
-                StatusCode::NOT_FOUND,
-                &format!("Cannot find block number for epoch {epoch}"),
-            )
-        })?;
 
     // Get the ledger info for the target block number
     match consensus_db.get::<LedgerInfoSchema>(&target_block_number) {
@@ -259,27 +257,23 @@ pub fn get_validator_count_by_epoch(
         }
     };
 
-    // Get block number for the target epoch
-    let all_epoch_blocks = match consensus_db.get_all::<EpochByBlockNumberSchema>() {
-        Ok(blocks) => blocks,
+    // Find the block number for the target epoch without materializing the full mapping.
+    let target_block_number = match consensus_db
+        .find::<EpochByBlockNumberSchema, _>(|(_, epoch_)| *epoch_ == epoch)
+    {
+        Ok(Some((block_number, _))) => block_number,
+        Ok(None) => {
+            error!("Cannot find block number for epoch {}", epoch);
+            return Err(error_response(
+                StatusCode::NOT_FOUND,
+                &format!("Cannot find block number for epoch {epoch}"),
+            ));
+        }
         Err(e) => {
             error!("Failed to get epoch by block number: {:?}", e);
             return Err(error_response(StatusCode::INTERNAL_SERVER_ERROR, "Internal server error"));
         }
     };
-
-    // Find the block number for the target epoch
-    let target_block_number = all_epoch_blocks
-        .into_iter()
-        .find(|(_, epoch_)| *epoch_ == epoch)
-        .map(|(block_number, _)| block_number)
-        .ok_or_else(|| {
-            error!("Cannot find block number for epoch {}", epoch);
-            error_response(
-                StatusCode::NOT_FOUND,
-                &format!("Cannot find block number for epoch {epoch}"),
-            )
-        })?;
 
     // Get validator set from config storage using block_number
     let validator_count = match GLOBAL_CONFIG_STORAGE.get() {
@@ -342,30 +336,31 @@ fn get_block_by_round(consensus_db: &ConsensusDB, epoch: u64, round: u64) -> Opt
     let start_key = (epoch, HashValue::zero());
     let end_key = (epoch, HashValue::new([u8::MAX; HashValue::LENGTH]));
 
-    // Get all blocks in this epoch and filter by round
-    match consensus_db.get_range::<BlockSchema>(&start_key, &end_key) {
-        Ok(blocks) => {
-            // Find block with matching round
-            for ((_, _), block) in blocks {
-                if block.round() == round {
-                    // Try to get block number if not set
-                    let block_number = if block.block_number().is_none() {
-                        consensus_db.get::<BlockNumberSchema>(&(epoch, block.id())).ok().flatten()
-                    } else {
-                        block.block_number()
-                    };
+    // Stream blocks in this epoch and stop at the first matching round. The scan is capped to
+    // avoid unauthenticated requests forcing unbounded RocksDB iteration.
+    match consensus_db.find_range::<BlockSchema, _>(
+        &start_key,
+        &end_key,
+        MAX_CONSENSUS_RANGE_SCAN_RECORDS,
+        |(_, block)| block.round() == round,
+    ) {
+        Ok(Some(((_, _), block))) => {
+            // Try to get block number if not set
+            let block_number = if block.block_number().is_none() {
+                consensus_db.get::<BlockNumberSchema>(&(epoch, block.id())).ok().flatten()
+            } else {
+                block.block_number()
+            };
 
-                    return Some(BlockInfo {
-                        epoch: block.epoch(),
-                        round: block.round(),
-                        block_number,
-                        block_id: hex::encode(block.id().as_ref()),
-                        parent_id: hex::encode(block.parent_id().as_ref()),
-                    });
-                }
-            }
-            None
+            Some(BlockInfo {
+                epoch: block.epoch(),
+                round: block.round(),
+                block_number,
+                block_id: hex::encode(block.id().as_ref()),
+                parent_id: hex::encode(block.parent_id().as_ref()),
+            })
         }
+        Ok(None) => None,
         Err(e) => {
             error!("Failed to get blocks: {:?}", e);
             None
@@ -378,29 +373,30 @@ fn get_qc_by_round(consensus_db: &ConsensusDB, epoch: u64, round: u64) -> Option
     let start_key = (epoch, HashValue::zero());
     let end_key = (epoch, HashValue::new([u8::MAX; HashValue::LENGTH]));
 
-    // Get all QCs in this epoch and filter by round
-    match consensus_db.get_qc_range(&start_key, &end_key) {
-        Ok(qcs) => {
-            // Find QC with matching round
-            for qc in qcs {
-                if qc.certified_block().round() == round {
-                    // Try to get block number for the certified block
-                    let block_number = consensus_db
-                        .get::<BlockNumberSchema>(&(epoch, qc.certified_block().id()))
-                        .ok()
-                        .flatten();
+    // Stream QCs in this epoch and stop at the first matching round. The scan is capped to avoid
+    // unauthenticated requests forcing unbounded RocksDB iteration.
+    match consensus_db.find_range::<aptos_consensus::consensusdb::QCSchema, _>(
+        &start_key,
+        &end_key,
+        MAX_CONSENSUS_RANGE_SCAN_RECORDS,
+        |(_, qc)| qc.certified_block().round() == round,
+    ) {
+        Ok(Some((_, qc))) => {
+            // Try to get block number for the certified block
+            let block_number = consensus_db
+                .get::<BlockNumberSchema>(&(epoch, qc.certified_block().id()))
+                .ok()
+                .flatten();
 
-                    return Some(QCInfo {
-                        epoch: qc.certified_block().epoch(),
-                        round: qc.certified_block().round(),
-                        block_number,
-                        certified_block_id: hex::encode(qc.certified_block().id().as_ref()),
-                        commit_info_block_id: hex::encode(qc.commit_info().id().as_ref()),
-                    });
-                }
-            }
-            None
+            Some(QCInfo {
+                epoch: qc.certified_block().epoch(),
+                round: qc.certified_block().round(),
+                block_number,
+                certified_block_id: hex::encode(qc.certified_block().id().as_ref()),
+                commit_info_block_id: hex::encode(qc.commit_info().id().as_ref()),
+            })
         }
+        Ok(None) => None,
         Err(e) => {
             error!("Failed to get QCs: {:?}", e);
             None
