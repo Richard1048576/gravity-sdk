@@ -24,7 +24,9 @@ use gaptos::{
     },
 };
 use std::{
+    cell::{Cell, RefCell},
     collections::{BTreeMap, HashMap, HashSet},
+    rc::Rc,
     sync::{Arc, Mutex},
     time::{Duration, Instant},
 };
@@ -179,6 +181,10 @@ impl CoreMempoolTrait for Mempool {
         _before: Option<Instant>,
         priority_of_receiver: BroadcastPeerPriority,
     ) -> (Vec<(SignedTransaction, u64)>, MultiBucketTimelineIndexIds) {
+        if count == 0 {
+            return (Vec::new(), MultiBucketTimelineIndexIds { id_per_bucket: vec![] });
+        }
+
         // Self-observe topology: this call IS proof that
         // (sender_bucket, priority_of_receiver) is currently an active slot.
         let target_slot: TargetSlot = (sender_bucket, priority_discriminant(&priority_of_receiver));
@@ -190,9 +196,18 @@ impl CoreMempoolTrait for Mempool {
 
         let shard: Vec<SnapshotEntry> = {
             let mut snap = self.snapshot.lock().unwrap();
-            if !snap.initialized || snap.taken_at.elapsed() >= snap.max_age {
-                self.refresh_snapshot_locked(&mut snap);
-            }
+            // Always refresh through the bounded filter; reusing a prior
+            // priority-specific snapshot could re-broadcast transactions that
+            // are suppressed for this receiver.
+            let _ = snap.max_age;
+            self.refresh_snapshot_locked(
+                &mut snap,
+                sender_bucket,
+                count,
+                target_slot,
+                priority_count,
+                priority_of_receiver,
+            );
             snap.shards.get(&sender_bucket).cloned().unwrap_or_default()
         };
 
@@ -356,24 +371,71 @@ impl Mempool {
         }
     }
 
-    fn refresh_snapshot_locked(&self, snap: &mut Snapshot) {
-        let mut shards: HashMap<MempoolSenderBucket, Vec<SnapshotEntry>> = HashMap::new();
-        let mut alive: HashSet<TxnHash> = HashSet::new();
-        for txn in self.pool.get_broadcast_txns(None) {
-            let bucket = sender_to_bucket(txn.sender(), self.num_sender_buckets);
+    fn refresh_snapshot_locked(
+        &self,
+        snap: &mut Snapshot,
+        sender_bucket: MempoolSenderBucket,
+        count: usize,
+        target_slot: TargetSlot,
+        priority_count: u8,
+        priority_of_receiver: BroadcastPeerPriority,
+    ) {
+        let now = Instant::now();
+        let (cache_entries, cache_ttl) = {
+            let cache = self.txn_cache.lock().unwrap();
+            (cache.entries.clone(), cache.ttl)
+        };
+        let accepted = Cell::new(0usize);
+        let alive = Rc::new(RefCell::new(HashSet::new()));
+        let alive_filter = alive.clone();
+        let num_sender_buckets = self.num_sender_buckets;
+        let filter = Box::new(move |txn: (ExternalAccountAddress, u64, TxnHash)| {
+            if accepted.get() >= count {
+                return false;
+            }
+            if sender_to_bucket(&txn.0, num_sender_buckets) != sender_bucket {
+                return false;
+            }
+            alive_filter.borrow_mut().insert(txn.2);
+            let cache_entry = cache_entries.get(&txn.2);
+            let dispatch = match cache_entry {
+                None => matches!(priority_of_receiver, BroadcastPeerPriority::Primary),
+                Some(e) if !e.dispatched => match priority_of_receiver {
+                    BroadcastPeerPriority::Primary => true,
+                    BroadcastPeerPriority::Failover => {
+                        now.duration_since(e.last_dispatched_at) >= cache_ttl
+                    }
+                },
+                Some(e) if now.duration_since(e.last_dispatched_at) < cache_ttl => false,
+                Some(e) if e.last_target == target_slot && priority_count >= 2 => false,
+                Some(_) => true,
+            };
+            let seed_failover_placeholder = cache_entry.is_none()
+                && matches!(priority_of_receiver, BroadcastPeerPriority::Failover);
+            let include = dispatch || seed_failover_placeholder;
+            if include {
+                accepted.set(accepted.get() + 1);
+            }
+            include
+        });
+
+        let mut shard = Vec::new();
+        for txn in self.pool.get_broadcast_txns(Some(filter)) {
             let hash = TxnHash::from_bytes(txn.committed_hash().as_slice());
-            alive.insert(hash);
             let signed: SignedTransaction = VerifiedTxn::from(txn).into();
-            shards.entry(bucket).or_default().push(SnapshotEntry { hash, txn: signed });
+            shard.push(SnapshotEntry { hash, txn: signed });
         }
-        snap.shards = shards;
+        snap.shards.clear();
+        snap.shards.insert(sender_bucket, shard);
         snap.taken_at = Instant::now();
         snap.initialized = true;
 
-        // Lazy GC: drop cache entries whose hash is no longer alive in the
-        // reth pool (committed / replaced / evicted). Then cap by size.
+        // Lazy GC: the filter records same-bucket hashes before conversion, so
+        // TTL-suppressed transactions remain alive without forcing a deep
+        // transaction conversion into the snapshot.
+        let alive = alive.borrow();
         let mut cache = self.txn_cache.lock().unwrap();
-        cache.entries.retain(|h, _| alive.contains(h));
+        cache.entries.retain(|h, e| e.last_target.0 != sender_bucket || alive.contains(h));
         if cache.entries.len() > cache.size {
             let mut by_age: Vec<(TxnHash, Instant)> =
                 cache.entries.iter().map(|(h, e)| (*h, e.last_dispatched_at)).collect();
