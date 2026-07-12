@@ -516,7 +516,8 @@ configure_pfn() {
         jq --argjson port "$WS_PORT" \
            --arg origins "$RPC_WS_ORIGINS" \
            --arg api "$RPC_WS_API" \
-           '.reth_args += {"ws":"", "ws.port":$port, "ws.addr":"0.0.0.0", "ws.origins":$origins, "ws.api":$api}' \
+           --arg addr "$RPC_WS_ADDR" \
+           '.reth_args += {"ws":"", "ws.port":$port, "ws.addr":$addr, "ws.origins":$origins, "ws.api":$api}' \
            "$config_dir/reth_config.json" > "$tmp" && mv "$tmp" "$config_dir/reth_config.json"
     fi
 
@@ -637,7 +638,8 @@ configure_vfn() {
         jq --argjson port "$WS_PORT" \
            --arg origins "$RPC_WS_ORIGINS" \
            --arg api "$RPC_WS_API" \
-           '.reth_args += {"ws":"", "ws.port":$port, "ws.addr":"0.0.0.0", "ws.origins":$origins, "ws.api":$api}' \
+           --arg addr "$RPC_WS_ADDR" \
+           '.reth_args += {"ws":"", "ws.port":$port, "ws.addr":$addr, "ws.origins":$origins, "ws.api":$api}' \
            "$config_dir/reth_config.json" > "$tmp" && mv "$tmp" "$config_dir/reth_config.json"
     fi
 
@@ -783,11 +785,13 @@ main() {
     # Read relayer RPC URL from config (with default)
     export RELAYER_RPC_URL=$(echo "$config_json" | jq -r '.relayer.relayer_rpc_url // "https://sepolia.drpc.org"')
 
-    # Cluster-level RPC settings (defaults preserve current "open" behavior for dev/e2e)
-    export RPC_HTTP_CORSDOMAIN=$(echo "$config_json" | jq -r '.rpc.http_corsdomain // "*"')
-    export RPC_HTTP_API=$(echo "$config_json" | jq -r '.rpc.http_api // "debug,eth,net,trace,txpool,web3,rpc"')
-    export RPC_WS_ORIGINS=$(echo "$config_json" | jq -r '.rpc.ws_origins // "*"')
-    export RPC_WS_API=$(echo "$config_json" | jq -r '.rpc.ws_api // "debug,eth,net,trace,txpool,web3,rpc"')
+    # Cluster-level RPC settings. Defaults keep RPC local-only and expose only public APIs.
+    export RPC_HTTP_ADDR=$(echo "$config_json" | jq -r '.rpc.http_addr // "127.0.0.1"')
+    export RPC_HTTP_CORSDOMAIN=$(echo "$config_json" | jq -r '.rpc.http_corsdomain // ""')
+    export RPC_HTTP_API=$(echo "$config_json" | jq -r '.rpc.http_api // "eth,net,web3,rpc"')
+    export RPC_WS_ADDR=$(echo "$config_json" | jq -r '.rpc.ws_addr // "127.0.0.1"')
+    export RPC_WS_ORIGINS=$(echo "$config_json" | jq -r '.rpc.ws_origins // ""')
+    export RPC_WS_API=$(echo "$config_json" | jq -r '.rpc.ws_api // "eth,net,web3,rpc"')
     
     # Resolve relative paths (relative to CONFIG_FILE location, not SCRIPT_DIR)
     local config_dir="$(dirname "$CONFIG_FILE")"
