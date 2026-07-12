@@ -456,7 +456,6 @@ impl PersistentLivenessStorage for StorageWriteProxy {
     }
 
     fn prune_tree(&self, block_keys: Vec<(u64, HashValue)>) -> Result<()> {
-        panic!("Can't delete blocks");
         if !block_keys.is_empty() {
             // quorum certs that certified the block_ids will get removed
             self.db.delete_blocks_and_quorum_certificates(block_keys)?;
@@ -560,11 +559,10 @@ impl PersistentLivenessStorage for StorageWriteProxy {
             order_vote_enabled,
             raw_data.4,
         ) {
-            Ok(initial_data) => {
-                // TODO(gravity_lightman)
-                // (self as &dyn PersistentLivenessStorage)
-                //     .prune_tree(initial_data.take_blocks_to_prune())
-                //     .expect("unable to prune dangling blocks during restart");
+            Ok(mut initial_data) => {
+                (self as &dyn PersistentLivenessStorage)
+                    .prune_tree(initial_data.take_blocks_to_prune())
+                    .expect("unable to prune dangling blocks during restart");
                 if initial_data.last_vote.is_none() {
                     self.db.delete_last_vote_msg().expect("unable to cleanup last vote");
                 }
