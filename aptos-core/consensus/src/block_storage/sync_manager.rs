@@ -761,23 +761,11 @@ impl BlockStore {
                         )
                     })?;
 
-                // Get randomness if it exists for this block
-                let randomness = match block.block_number() {
-                    Some(block_number) => {
-                        self.storage.consensus_db().get_randomness(block_number).map_err(|e| {
-                            anyhow::anyhow!(
-                                "Failed to get randomness for block number {}: {:?}",
-                                block_number,
-                                e
-                            )
-                        })?
-                    }
-                    None => None,
-                };
-
-                // Add the initial block and QC to the result
+                // Add the initial block and QC to the result. Do not include randomness: block
+                // retrieval responses are peer-authenticated but the raw randomness bytes are
+                // not cryptographically bound to the certified block in this protocol.
                 quorum_certs.push(qc);
-                blocks.push((block.clone(), block.block_number(), randomness));
+                blocks.push((block.clone(), block.block_number(), None));
 
                 // Get the start block_id (consensus_block_id of the last block in this epoch)
                 let start_wrapped_ledger_info = self
@@ -831,25 +819,12 @@ impl BlockStore {
                     qc.vote_data().parent().round() == 0;
                 quorum_certs.push((*qc).clone());
 
-                // Get randomness if available (for randomness-enabled blocks)
-                let randomness = match executed_block.block().block_number() {
-                    Some(block_number) => {
-                        self.storage.consensus_db().get_randomness(block_number).unwrap_or_else(
-                            |e| {
-                                warn!(
-                                    "Failed to get randomness for block number {}: {:?}",
-                                    block_number, e
-                                );
-                                None
-                            },
-                        )
-                    }
-                    None => None,
-                };
+                // Do not include randomness in block retrieval responses: peers cannot verify
+                // that these raw bytes are bound to the certified block.
                 blocks.push((
                     executed_block.block().clone(),
                     executed_block.block().block_number(),
-                    randomness,
+                    None,
                 ));
                 parent_id = executed_block.parent_id();
             } else if let Ok(Some(executed_block)) =
@@ -880,25 +855,9 @@ impl BlockStore {
                     qc.vote_data().parent().round() == 0;
                 quorum_certs.push(qc);
 
-                // Get randomness if available
-                let randomness = match executed_block.block_number() {
-                    Some(block_number) => {
-                        self.storage.consensus_db().get_randomness(block_number).unwrap_or_else(
-                            |e| {
-                                warn!(
-                                    "Failed to get randomness for block number {}: {:?}",
-                                    block_number, e
-                                );
-                                None
-                            },
-                        )
-                    }
-                    None => {
-                        warn!("Block {} has no block number", id);
-                        None
-                    }
-                };
-                blocks.push((executed_block.clone(), executed_block.block_number(), randomness));
+                // Do not include randomness in block retrieval responses: peers cannot verify
+                // that these raw bytes are bound to the certified block.
+                blocks.push((executed_block.clone(), executed_block.block_number(), None));
                 parent_id = executed_block.parent_id();
             } else {
                 // Block not found in either memory or database
