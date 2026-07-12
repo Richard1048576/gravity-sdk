@@ -300,6 +300,7 @@ impl NodeSetup {
             Arc::new(Mutex::new(PendingBlocks::new())),
             false,
             HashMap::new(), // validator_indices: empty for tests
+            EpochState::empty().verifier,
         ));
 
         let proposer_election = Self::create_proposer_election(proposers.clone());

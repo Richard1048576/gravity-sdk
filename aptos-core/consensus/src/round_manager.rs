@@ -842,8 +842,8 @@ impl RoundManager {
 
         let author = proposal.author().expect("Proposal should be verified having an author");
 
-        if !self.vtxn_config.enabled() &&
-            matches!(proposal.block_data().block_type(), BlockType::ProposalExt(_))
+        if !self.vtxn_config.enabled()
+            && matches!(proposal.block_data().block_type(), BlockType::ProposalExt(_))
         {
             counters::UNEXPECTED_PROPOSAL_EXT_COUNT.inc();
             bail!("ProposalExt unexpected while the feature is disabled.");
@@ -856,6 +856,19 @@ impl RoundManager {
                     "unexpected validator txn: {:?}",
                     vtxn.topic()
                 );
+                if let ValidatorTransaction::ObservedJWKUpdate(jwk_update) = vtxn {
+                    let authors = jwk_update.multi_sig.get_signers_addresses(
+                        &self.epoch_state.verifier.get_ordered_account_addresses(),
+                    );
+                    self.epoch_state
+                        .verifier
+                        .check_voting_power(authors.iter(), true)
+                        .context("JWK update does not have quorum voting power")?;
+                    self.epoch_state
+                        .verifier
+                        .verify_multi_signatures(&jwk_update.update, &jwk_update.multi_sig)
+                        .context("JWK update quorum signature verification failed")?;
+                }
             }
         }
 
@@ -904,8 +917,8 @@ impl RoundManager {
         );
 
         ensure!(
-            validator_txns_total_bytes + payload_size as u64 <=
-                self.local_config.max_receiving_block_bytes,
+            validator_txns_total_bytes + payload_size as u64
+                <= self.local_config.max_receiving_block_bytes,
             "Payload size {} exceeds the limit {}",
             payload_size,
             self.local_config.max_receiving_block_bytes,
@@ -1032,8 +1045,8 @@ impl RoundManager {
     async fn broadcast_fast_shares(&mut self, block_info: &BlockInfo) {
         // generate and multicast randomness share for the fast path
         if let Some(fast_config) = &self.fast_rand_config {
-            if !block_info.is_empty() &&
-                !self.blocks_with_broadcasted_fast_shares.contains(&block_info.id())
+            if !block_info.is_empty()
+                && !self.blocks_with_broadcasted_fast_shares.contains(&block_info.id())
             {
                 let metadata =
                     RandMetadata { epoch: block_info.epoch(), round: block_info.round() };
@@ -1152,8 +1165,8 @@ impl RoundManager {
                 return Ok(());
             }
 
-            if order_vote_msg.order_vote().ledger_info().round() >
-                self.block_store.sync_info().highest_ordered_round()
+            if order_vote_msg.order_vote().ledger_info().round()
+                > self.block_store.sync_info().highest_ordered_round()
             {
                 let vote_reception_result = self
                     .pending_order_votes
@@ -1331,9 +1344,9 @@ impl RoundManager {
                 PROPOSAL_VOTE_ADDED.inc();
                 Ok(())
             }
-            VoteReceptionResult::VoteAddedQCDelayed(_) |
-            VoteReceptionResult::EchoTimeout(_) |
-            VoteReceptionResult::DuplicateVote => Ok(()),
+            VoteReceptionResult::VoteAddedQCDelayed(_)
+            | VoteReceptionResult::EchoTimeout(_)
+            | VoteReceptionResult::DuplicateVote => Ok(()),
             e => Err(anyhow::anyhow!("{:?}", e)),
         }
     }
@@ -1437,7 +1450,7 @@ impl RoundManager {
     pub async fn init(&mut self, last_vote_sent: Option<Vote>) {
         let new_round_event = self.round_state.process_certificates(self.block_store.sync_info());
         if !self.is_validator() {
-            return
+            return;
         }
 
         let new_round_event =
@@ -1647,8 +1660,8 @@ impl RoundManager {
         proposal_msg: &ProposalMsg,
     ) -> anyhow::Result<()> {
         let block_data = proposal_msg.proposal().block_data();
-        let direct_suffix = block_data.is_reconfiguration_suffix() &&
-            !block_data.quorum_cert().parent_block().has_reconfiguration();
+        let direct_suffix = block_data.is_reconfiguration_suffix()
+            && !block_data.quorum_cert().parent_block().has_reconfiguration();
         let continuous_round =
             block_data.round() == block_data.quorum_cert().certified_block().round() + 1;
         let should_inject = direct_suffix && continuous_round;

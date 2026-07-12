@@ -103,6 +103,7 @@ fn build_empty_store(
         Arc::new(Mutex::new(PendingBlocks::new())),
         false,          // check_ordered_only
         HashMap::new(), // validator_indices: empty for fuzzing
+        EpochState::empty().verifier,
     ))
 }
 
