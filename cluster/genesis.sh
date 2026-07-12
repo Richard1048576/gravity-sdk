@@ -37,7 +37,13 @@ main() {
     log_info "Step 1: Checking external dependencies..."
     
     GENESIS_REPO=$(echo "$config_json" | jq -r '.dependencies.genesis_contracts.repo // "https://github.com/Galxe/gravity_chain_core_contracts.git"')
-    GENESIS_REF=$(echo "$config_json" | jq -r '.dependencies.genesis_contracts.ref // "main"')
+    GENESIS_REF=$(echo "$config_json" | jq -r '.dependencies.genesis_contracts.ref // empty')
+
+    if [[ ! "$GENESIS_REF" =~ ^[0-9a-fA-F]{40}$ ]]; then
+        log_error "dependencies.genesis_contracts.ref must be a pinned 40-character commit SHA."
+        log_error "Refusing to execute mutable genesis contracts ref: '${GENESIS_REF:-<unset>}'"
+        exit 1
+    fi
     
     GENESIS_CONTRACT_DIR="$EXTERNAL_DIR/gravity_chain_core_contracts"
     
@@ -47,18 +53,18 @@ main() {
         git clone "$GENESIS_REPO" "$GENESIS_CONTRACT_DIR"
     fi
 
-    # Checkout specified ref and pull latest (critical for branches to avoid stale bytecode)
-    log_info "Checking out ref: $GENESIS_REF..."
+    # Checkout the immutable commit before installing dependencies or executing scripts.
+    log_info "Checking out pinned commit: $GENESIS_REF..."
     (
         cd "$GENESIS_CONTRACT_DIR"
-        git fetch origin
+        git fetch --depth 1 origin "$GENESIS_REF"
         # Discard local modifications from previous runs (e.g. genesis_template.json)
         git checkout -- .
-        git checkout "$GENESIS_REF"
-        # Pull latest if on a branch (no-op for detached HEAD / commit hash)
-        if git symbolic-ref -q HEAD &>/dev/null; then
-            log_info "Pulling latest changes for branch $GENESIS_REF..."
-            git pull origin "$GENESIS_REF"
+        git checkout --detach "$GENESIS_REF"
+        checked_out_ref=$(git rev-parse HEAD)
+        if [ "${checked_out_ref,,}" != "${GENESIS_REF,,}" ]; then
+            log_error "Checked out genesis contracts ref $checked_out_ref, expected $GENESIS_REF"
+            exit 1
         fi
         # Fix Python 3.9 compatibility: `str | None` → `Optional[str]`
         python3 -c "
