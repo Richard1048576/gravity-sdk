@@ -19,12 +19,11 @@ concurrency:
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 permissions:
-  contents: write
-  packages: write
+  contents: read
 
 jobs:
-  build-and-release:
-    name: Build and release
+  build:
+    name: Build release assets
     runs-on: [self-hosted, linux]
     # Native build on the runner — no container.
     # Invariant: runner OS must match production node OS, otherwise the
@@ -55,6 +54,7 @@ jobs:
           # the branch where the dispatch was triggered. For push/PR, fall back
           # to the default ref (the tag or PR head).
           ref: ${{ github.event_name == 'workflow_dispatch' && inputs.tag || github.ref }}
+          persist-credentials: false
 
       - name: Show build environment
         # Logs runner OS / glibc / rustc so any future divergence from
@@ -108,20 +108,21 @@ jobs:
           cat "$OUT"/*.sha256
           echo "dir=$OUT" >> "$GITHUB_OUTPUT"
 
-      - name: Upload PR dry-run artifact
-        if: github.event_name == 'pull_request'
+      - name: Upload release assets artifact
         uses: actions/upload-artifact@v4
         with:
-          name: release-dryrun-${{ github.sha }}
+          name: release-assets-${{ github.sha }}
           path: ${{ steps.stage.outputs.dir }}
           if-no-files-found: error
           retention-days: 7
 
-      - name: Build gravity_node docker image
+
+      - name: Build gravity_node docker image dry run
         # Uses the `runtime-host-binary` target of docker/gravity_node/Dockerfile,
         # which COPYs the binary the previous cargo step just produced. BuildKit
         # stage pruning skips the `builder` stage entirely — no double compile.
-        # Runs on both PR (build-only, no push) and tag pushes.
+        # Runs with the build job's read-only token on PRs and release events;
+        # publishing happens later in the non-PR-only publish job.
         #
         # Note: the repo's .dockerignore excludes `target/` from the build
         # context, so we stage the binary into docker/gravity_node/bin/ (a path
@@ -145,9 +146,31 @@ jobs:
           # the runner reuses the checkout between jobs.
           rm -f docker/gravity_node/bin/gravity_node
 
+
+  publish:
+    name: Publish release
+    needs: build
+    if: github.event_name != 'pull_request'
+    runs-on: [self-hosted, linux]
+    timeout-minutes: 60
+    permissions:
+      contents: write
+      packages: write
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event_name == 'workflow_dispatch' && inputs.tag || github.ref }}
+          persist-credentials: false
+
+      - name: Download release assets artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: release-assets-${{ github.sha }}
+          path: ${{ runner.temp }}/release-assets
+
       - name: Resolve tag
         id: tag
-        if: github.event_name != 'pull_request'
         shell: bash
         env:
           INPUT_TAG: ${{ inputs.tag }}
@@ -165,11 +188,10 @@ jobs:
           echo "tag=$TAG" >> "$GITHUB_OUTPUT"
 
       - name: Upload assets to GitHub release
-        if: github.event_name != 'pull_request'
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           TAG: ${{ steps.tag.outputs.tag }}
-          ASSETS_DIR: ${{ steps.stage.outputs.dir }}
+          ASSETS_DIR: ${{ runner.temp }}/release-assets
         shell: bash
         run: |
           set -euo pipefail
@@ -185,8 +207,34 @@ jobs:
             "$ASSETS_DIR/gravity_cli.sha256" \
             --clobber
 
+      - name: Build gravity_node docker image
+        # Uses the `runtime-host-binary` target of docker/gravity_node/Dockerfile,
+        # which COPYs the binary the previous cargo step just produced. BuildKit
+        # stage pruning skips the `builder` stage entirely — no double compile.
+        #
+        # Note: the repo's .dockerignore excludes `target/` from the build
+        # context, so we stage the binary into docker/gravity_node/bin/ (a path
+        # that IS in the context) before invoking `docker build`. This matches
+        # the pre-existing pattern used by regression/pfn_chain_stress/run.sh.
+        shell: bash
+        env:
+          IMAGE_REF: gravity_node:build-${{ github.sha }}
+        run: |
+          set -euo pipefail
+          mkdir -p docker/gravity_node/bin
+          cp -f "${RUNNER_TEMP}/release-assets/gravity_node" docker/gravity_node/bin/gravity_node
+          DOCKER_BUILDKIT=1 docker build \
+            --target runtime-host-binary \
+            --build-arg HOST_BINARY=docker/gravity_node/bin/gravity_node \
+            -t "${IMAGE_REF}" \
+            -f docker/gravity_node/Dockerfile .
+          echo "--- image size ---"
+          docker images --format '{{.Repository}}:{{.Tag}} {{.Size}}' | grep "^${IMAGE_REF}"
+          # Don't leave the binary in the repo working dir after the build —
+          # the runner reuses the checkout between jobs.
+          rm -f docker/gravity_node/bin/gravity_node
+
       - name: Login to ghcr.io
-        if: github.event_name != 'pull_request'
         shell: bash
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -195,7 +243,6 @@ jobs:
           echo "${GH_TOKEN}" | docker login ghcr.io -u "${GITHUB_ACTOR}" --password-stdin
 
       - name: Tag and push docker image to ghcr.io
-        if: github.event_name != 'pull_request'
         shell: bash
         env:
           TAG: ${{ steps.tag.outputs.tag }}
