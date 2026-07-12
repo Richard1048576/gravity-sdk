@@ -59,6 +59,7 @@ impl ExecutionPipeline {
         let (pre_commit_tx, pre_commit_rx) = mpsc::unbounded_channel();
 
         runtime.spawn(Self::prepare_block_stage(prepare_block_rx, execute_block_tx));
+        runtime.spawn(Self::execute_stage(execute_block_rx, ledger_apply_tx, executor.clone()));
         runtime.spawn(Self::ledger_apply_stage(
             ledger_apply_rx,
             pre_commit_tx,

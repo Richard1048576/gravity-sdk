@@ -67,17 +67,22 @@ pub mod block_executor {
 
         fn finish(&self) {}
 
-        fn pre_commit_block(&self, block_id: HashValue) -> ExecutorResult<()> {
-            todo!()
+        fn pre_commit_block(&self, _block_id: HashValue) -> ExecutorResult<()> {
+            ExecutorResult::Ok(())
         }
 
         fn commit_ledger(
             &self,
             block_ids: Vec<(HashValue, u64)>,
-            ledger_info_with_sigs: LedgerInfoWithSignatures,
-            randomness_data: Vec<(u64, Vec<u8>)>,
+            _ledger_info_with_sigs: LedgerInfoWithSignatures,
+            _randomness_data: Vec<(u64, Vec<u8>)>,
         ) -> ExecutorResult<()> {
-            todo!()
+            self.block_tree
+                .write()
+                .unwrap()
+                .commited_blocks
+                .extend(block_ids.into_iter().map(|(block_id, _)| block_id));
+            ExecutorResult::Ok(())
         }
     }
 }
