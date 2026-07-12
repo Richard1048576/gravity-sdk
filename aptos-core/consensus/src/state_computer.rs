@@ -25,7 +25,6 @@ use aptos_consensus_types::{
     pipelined_block::PipelinedBlock,
 };
 use aptos_executor_types::{BlockExecutorTrait, ExecutorResult, StateComputeResult};
-use aptos_mempool::core_mempool::transaction::VerifiedTxn;
 use gaptos::{
     api_types::{
         account::{ExternalAccountAddress, ExternalChainId},
@@ -52,7 +51,7 @@ use gaptos::{
         jwks::{self, jwk::JWK, ProviderJWKs},
         ledger_info::LedgerInfoWithSignatures,
         randomness::Randomness,
-        transaction::{SignedTransaction, Transaction},
+        transaction::{SignedTransaction, Transaction, TransactionPayload},
         validator_signer::ValidatorSigner,
         validator_txn::ValidatorTransaction,
         vm_status::{DiscardedVMStatus, StatusCode},
@@ -486,17 +485,24 @@ impl StateComputer for ExecutionProxy {
         };
 
         // We would export the empty block detail to the outside GCEI caller
-        let vtxns =
-            txns.iter().map(|txn| Into::<VerifiedTxn>::into(&txn.clone())).collect::<Vec<_>>();
-        let real_txns: Vec<gaptos::api_types::VerifiedTxn> = vtxns
-            .into_iter()
-            .map(|txn| {
-                gaptos::api_types::VerifiedTxn::new(
-                    txn.bytes().to_vec(),
+        let real_txns: Vec<gaptos::api_types::VerifiedTxn> = txns
+            .iter()
+            .filter_map(|txn| match txn.payload() {
+                TransactionPayload::GTxnBytes(bytes) => Some(gaptos::api_types::VerifiedTxn::new(
+                    bytes.clone(),
                     ExternalAccountAddress::new(txn.sender().into_bytes()),
                     txn.sequence_number(),
                     ExternalChainId::new(txn.chain_id().id()),
-                )
+                )),
+                payload => {
+                    warn!(
+                        sender = ?txn.sender(),
+                        sequence_number = txn.sequence_number(),
+                        payload = ?payload,
+                        "dropping unsupported transaction payload from external execution block"
+                    );
+                    None
+                }
             })
             .collect();
         APTOS_EXECUTION_TXNS.observe(real_txns.len() as f64);
