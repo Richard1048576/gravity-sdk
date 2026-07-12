@@ -326,6 +326,53 @@ impl ConsensusDB {
         Ok(iter.collect::<Result<Vec<(S::Key, S::Value)>, AptosDbError>>()?)
     }
 
+    pub fn find<S: Schema, F>(&self, mut filter: F) -> Result<Option<(S::Key, S::Value)>, DbError>
+    where
+        F: FnMut(&(S::Key, S::Value)) -> bool,
+    {
+        let mut iter = self.db.iter::<S>()?;
+        iter.seek_to_first();
+        for item in iter {
+            let item = item?;
+            if filter(&item) {
+                return Ok(Some(item));
+            }
+        }
+        Ok(None)
+    }
+
+    pub fn find_range<S: Schema, F>(
+        &self,
+        start_key: &S::Key,
+        end_key: &S::Key,
+        max_records: usize,
+        mut filter: F,
+    ) -> Result<Option<(S::Key, S::Value)>, DbError>
+    where
+        F: FnMut(&(S::Key, S::Value)) -> bool,
+    {
+        let mut option = ReadOptions::default();
+        let lower_bound = <S::Key as KeyCodec<S>>::encode_key(start_key).unwrap();
+        option.set_iterate_lower_bound(lower_bound);
+        let upper_bound = <S::Key as KeyCodec<S>>::encode_key(end_key).unwrap();
+        option.set_iterate_upper_bound(upper_bound);
+        let mut iter = self.db.iter_with_opts::<S>(option)?;
+        iter.seek_to_first();
+        for (records_scanned, item) in iter.enumerate() {
+            if records_scanned >= max_records {
+                return Err(anyhow::anyhow!(
+                    "scan limit exceeded while reading consensus DB range"
+                )
+                .into());
+            }
+            let item = item?;
+            if filter(&item) {
+                return Ok(Some(item));
+            }
+        }
+        Ok(None)
+    }
+
     pub fn get_range_with_filter<S: Schema, F>(
         &self,
         start_key: &S::Key,
