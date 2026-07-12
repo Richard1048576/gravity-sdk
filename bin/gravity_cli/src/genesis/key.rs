@@ -5,6 +5,14 @@ use gaptos::{
 };
 use std::{fs, path::PathBuf};
 
+#[cfg(unix)]
+use std::{
+    fs::OpenOptions,
+    io::Write,
+    os::unix::fs::{OpenOptionsExt, PermissionsExt},
+    path::Path,
+};
+
 use crate::{command::Executable, genesis::secret_manager};
 
 use serde::Serialize;
@@ -80,6 +88,22 @@ impl GenerateKey {
     }
 }
 
+#[cfg(unix)]
+fn write_private_key_file(path: &Path, contents: &[u8]) -> Result<(), anyhow::Error> {
+    let mut file =
+        OpenOptions::new().write(true).create(true).truncate(true).mode(0o600).open(path)?;
+    file.set_permissions(fs::Permissions::from_mode(0o600))?;
+    file.write_all(contents)?;
+    file.sync_all()?;
+    Ok(())
+}
+
+#[cfg(not(unix))]
+fn write_private_key_file(path: &PathBuf, contents: &[u8]) -> Result<(), anyhow::Error> {
+    fs::write(path, contents)?;
+    Ok(())
+}
+
 // TODO(gravity_lightman): account_private_key is aptos key， not reth
 impl Executable for GenerateKey {
     fn execute(self) -> Result<(), anyhow::Error> {
@@ -134,7 +158,7 @@ impl Executable for GenerateKey {
 
         if let Some(path) = self.output_file.as_ref() {
             println!("--- Write Output File ---");
-            fs::write(path, &yaml_string)?;
+            write_private_key_file(path, yaml_string.as_bytes())?;
         } else if let Some(resource) = self.secret.as_ref() {
             println!("--- Push to GCP Secret Manager ---");
             let version = secret_manager::push_secret(resource, yaml_string.as_bytes())?;
