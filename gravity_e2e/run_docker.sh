@@ -22,18 +22,25 @@ set -e
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
+SOURCE_DIR="${GRAVITY_E2E_SOURCE_DIR:-$REPO_ROOT}"
+if [ ! -d "$SOURCE_DIR" ]; then
+    echo "Source directory does not exist: $SOURCE_DIR" >&2
+    exit 1
+fi
+SOURCE_DIR="$(cd "$SOURCE_DIR" && pwd)"
 
 DOCKER_IMAGE="rust:1.88.0-bookworm"
 ARGS="$@"
 
 echo "===== Gravity E2E Docker Runner ====="
-echo "Repo Root: $REPO_ROOT"
+echo "Trusted Script Root: $REPO_ROOT"
+echo "Source Dir: $SOURCE_DIR"
 echo "Image: $DOCKER_IMAGE"
 echo "Args: ${ARGS:-<all suites>}"
 echo "======================================"
 
 # Pipe repo into container via tar (no volume mount, no permission issues)
-tar -C "$REPO_ROOT" \
+tar -C "$SOURCE_DIR" \
     --exclude='target' \
     --exclude='.git' \
     --exclude='external/gravity_bench' \
