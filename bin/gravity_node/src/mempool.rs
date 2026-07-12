@@ -291,11 +291,14 @@ impl TxPool for Mempool {
                 let len = txn.encode_2718_len();
                 let recovered = Recovered::new_unchecked(txn, signer);
                 let pool_txn = EthPooledTransaction::new(recovered, len);
-                let pool = self.pool.clone();
                 let address = pool_txn.sender();
                 let to = pool_txn.to();
-                self.runtime.spawn(async move {
-                    if let Err(e) = pool.add_external_transaction(pool_txn).await {
+                match self
+                    .runtime
+                    .block_on(async { self.pool.add_external_transaction(pool_txn).await })
+                {
+                    Ok(_) => true,
+                    Err(e) => {
                         // Three-way classification:
                         //  * PoolErrorKind::Other(_)        — internal failure (DB/IO). Surface at
                         //    WARN so operators see it.
@@ -331,9 +334,9 @@ impl TxPool for Mempool {
                                 );
                             }
                         }
+                        false
                     }
-                });
-                true
+                }
             }
             Err(e) => {
                 tracing::error!("Failed to decode transaction: {}", e);
