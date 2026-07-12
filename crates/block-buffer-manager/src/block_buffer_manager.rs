@@ -720,18 +720,12 @@ impl BlockBufferManager {
         epoch: u64,
     ) -> Result<StateComputeResult, anyhow::Error> {
         self.wait_until_ready().await;
-        let start = Instant::now();
         info!("get_executed_res start {:?} num {:?}", block_id, block_num);
         loop {
-            if start.elapsed() > self.config.max_wait_timeout {
-                return Err(anyhow::anyhow!(
-                    "get_executed_res timeout for block {:?} after {:?} block_number: {:?}",
-                    block_id,
-                    start.elapsed(),
-                    block_num
-                ));
-            }
-
+            // Do not fail fast while execution is still processing an ordered block.
+            // Execution latency depends on block contents, node load, and execution-layer
+            // backpressure; returning an error here causes consensus callers to tear down
+            // the pipeline instead of applying natural backpressure until the result arrives.
             let mut block_state_machine = self.block_state_machine.lock().await;
             let block_key = BlockKey::new(epoch, block_num);
             if let Some(block) = block_state_machine.blocks.get(&block_key) {
