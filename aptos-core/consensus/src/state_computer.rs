@@ -55,6 +55,7 @@ use gaptos::{
         transaction::{SignedTransaction, Transaction},
         validator_signer::ValidatorSigner,
         validator_txn::ValidatorTransaction,
+        validator_verifier::ValidatorVerifier,
         vm_status::{DiscardedVMStatus, StatusCode},
     },
 };
@@ -88,6 +89,7 @@ impl LogicalTime {
 #[derive(Clone)]
 struct MutableState {
     validators: Arc<[AccountAddress]>,
+    validator_verifier: Arc<ValidatorVerifier>,
     payload_manager: Arc<dyn TPayloadManager>,
     transaction_shuffler: Arc<dyn TransactionShuffler>,
     block_executor_onchain_config: BlockExecutorConfigFromOnchain,
@@ -117,6 +119,7 @@ impl ExecutionProxy {
             block_executor_onchain_config,
             transaction_deduper,
             is_randomness_enabled,
+            ..
         } = self.state.read().as_ref().cloned().expect("must be set within an epoch");
         let mut txns = vec![];
         match payload_manager.get_transactions(block).await {
@@ -212,6 +215,7 @@ impl ExecutionProxy {
             block_executor_onchain_config,
             transaction_deduper,
             is_randomness_enabled,
+            ..
         } = self.state.read().as_ref().cloned().expect("must be set within an epoch");
 
         let block_preparer = Arc::new(BlockPreparer::new(
@@ -239,11 +243,16 @@ impl ExecutionProxy {
         validator_txns: Option<&[ValidatorTransaction]>,
         block: &Block,
     ) -> Vec<ExtraDataType> {
+        let MutableState { validator_verifier, .. } =
+            self.state.read().as_ref().cloned().expect("must be set within an epoch");
+
         validator_txns
             .map(|validator_txns| {
                 validator_txns
                     .iter()
-                    .filter_map(|txn| self.process_single_validator_transaction(txn, block))
+                    .filter_map(|txn| {
+                        self.process_single_validator_transaction(txn, block, &validator_verifier)
+                    })
                     .collect()
             })
             .unwrap_or_default()
@@ -254,6 +263,7 @@ impl ExecutionProxy {
         &self,
         txn: &ValidatorTransaction,
         block: &Block,
+        verifier: &ValidatorVerifier,
     ) -> Option<ExtraDataType> {
         match txn {
             ValidatorTransaction::DKGResult(transcript) => {
@@ -280,14 +290,25 @@ impl ExecutionProxy {
             ValidatorTransaction::ObservedJWKUpdate(jwks::QuorumCertifiedUpdate {
                 update,
                 multi_sig,
-            }) => self.process_jwk_update(&update, block).map(ExtraDataType::JWK),
+            }) => {
+                self.process_jwk_update(update, multi_sig, block, verifier).map(ExtraDataType::JWK)
+            }
         }
     }
 
     /// Process JWK update and convert to gaptos format
-    fn process_jwk_update(&self, update: &ProviderJWKs, block: &Block) -> Option<Vec<u8>> {
+    fn process_jwk_update(
+        &self,
+        update: &ProviderJWKs,
+        multi_sig: &gaptos::aptos_types::aggregate_signature::AggregateSignature,
+        block: &Block,
+        verifier: &ValidatorVerifier,
+    ) -> Option<Vec<u8>> {
         use gaptos::api_types::on_chain_config::jwks::{JWKStruct, ProviderJWKs};
-        // TODO(Gravity): Check the signature here instead of execution layer
+        if !verify_jwk_update(update, multi_sig, block, verifier) {
+            return None;
+        }
+
         info!(
             "jwk txn block number {} , {:?}",
             block.block_number().unwrap_or_else(|| panic!("No block number")),
@@ -341,13 +362,14 @@ impl ExecutionProxy {
 pub fn process_validator_transactions_util(
     validator_txns: Option<&[ValidatorTransaction]>,
     block: &Block,
+    verifier: &ValidatorVerifier,
 ) -> Vec<ExtraDataType> {
     let mut extra_data = Vec::new();
 
     if let Some(validator_txns) = validator_txns {
         extra_data = validator_txns
             .iter()
-            .filter_map(|txn| process_single_validator_transaction_util(txn, block))
+            .filter_map(|txn| process_single_validator_transaction_util(txn, block, verifier))
             .collect();
     }
 
@@ -358,6 +380,7 @@ pub fn process_validator_transactions_util(
 pub fn process_single_validator_transaction_util(
     txn: &ValidatorTransaction,
     block: &Block,
+    verifier: &ValidatorVerifier,
 ) -> Option<ExtraDataType> {
     match txn {
         ValidatorTransaction::DKGResult(transcript) => {
@@ -382,14 +405,22 @@ pub fn process_single_validator_transaction_util(
         ValidatorTransaction::ObservedJWKUpdate(jwks::QuorumCertifiedUpdate {
             update,
             multi_sig,
-        }) => process_jwk_update_util(&update, block).map(ExtraDataType::JWK),
+        }) => process_jwk_update_util(update, multi_sig, block, verifier).map(ExtraDataType::JWK),
     }
 }
 
 /// Public utility function to process JWK update
-pub fn process_jwk_update_util(update: &ProviderJWKs, block: &Block) -> Option<Vec<u8>> {
+pub fn process_jwk_update_util(
+    update: &ProviderJWKs,
+    multi_sig: &gaptos::aptos_types::aggregate_signature::AggregateSignature,
+    block: &Block,
+    verifier: &ValidatorVerifier,
+) -> Option<Vec<u8>> {
     use gaptos::api_types::on_chain_config::jwks::{JWKStruct, ProviderJWKs};
-    // TODO(Gravity): Check the signature here instead of execution layer
+    if !verify_jwk_update(update, multi_sig, block, verifier) {
+        return None;
+    }
+
     info!(
         "jwk txn epoch {}, block number {}, data len {}, {:?}",
         block.epoch(),
@@ -440,6 +471,35 @@ pub fn process_jwk_update_util(update: &ProviderJWKs, block: &Block) -> Option<V
         .ok()
 }
 
+fn verify_jwk_update(
+    update: &ProviderJWKs,
+    multi_sig: &gaptos::aptos_types::aggregate_signature::AggregateSignature,
+    block: &Block,
+    verifier: &ValidatorVerifier,
+) -> bool {
+    let authors = multi_sig.get_signers_addresses(&verifier.get_ordered_account_addresses());
+
+    if let Err(err) = verifier.check_voting_power(authors.iter(), true) {
+        warn!(
+            "dropping JWK update for block {} due to insufficient voting power: {}",
+            block.id(),
+            err
+        );
+        return false;
+    }
+
+    if let Err(err) = verifier.verify_multi_signatures(update, multi_sig) {
+        warn!(
+            "dropping JWK update for block {} due to invalid quorum signature: {}",
+            block.id(),
+            err
+        );
+        return false;
+    }
+
+    true
+}
+
 #[async_trait::async_trait]
 impl StateComputer for ExecutionProxy {
     async fn schedule_compute(
@@ -453,11 +513,14 @@ impl StateComputer for ExecutionProxy {
     ) -> StateComputeResultFut {
         assert!(block.block_number().is_some());
         let txns = self.get_block_txns(block).await;
-        let validator_txns = block.validator_txns();
-        let extra_data = process_validator_transactions_util(validator_txns.map(|v| &**v), block);
-
-        let MutableState { validators, .. } =
+        let MutableState { validators, validator_verifier, .. } =
             self.state.read().as_ref().cloned().expect("must be set within an epoch");
+        let validator_txns = block.validator_txns();
+        let extra_data = process_validator_transactions_util(
+            validator_txns.map(|v| &**v),
+            block,
+            &validator_verifier,
+        );
 
         // Look up the proposer's index in the validator set (None for NIL blocks)
         let proposer_index = block
@@ -730,6 +793,7 @@ impl StateComputer for ExecutionProxy {
                 .get_ordered_account_addresses_iter()
                 .collect::<Vec<_>>()
                 .into(),
+            validator_verifier: epoch_state.verifier.clone(),
             payload_manager,
             transaction_shuffler,
             block_executor_onchain_config,

@@ -45,6 +45,7 @@ use gaptos::{
         ledger_info::{LedgerInfo, LedgerInfoWithSignatures},
         randomness::{RandMetadata, Randomness},
         validator_txn::ValidatorTransaction,
+        validator_verifier::ValidatorVerifier,
     },
 };
 use once_cell::sync::Lazy;
@@ -136,6 +137,7 @@ pub struct BlockStore {
     /// Mapping from validator address to their index in the ordered validator set.
     /// Used during recovery to compute proposer_index for blocks.
     validator_indices: HashMap<AccountAddress, usize>,
+    validator_verifier: Arc<ValidatorVerifier>,
 }
 
 impl BlockStore {
@@ -152,6 +154,7 @@ impl BlockStore {
         pending_blocks: Arc<Mutex<PendingBlocks>>,
         enable_randomness: bool,
         validator_indices: HashMap<AccountAddress, usize>,
+        validator_verifier: Arc<ValidatorVerifier>,
     ) -> Self {
         let highest_2chain_tc = initial_data.highest_2chain_timeout_certificate();
         let (root, blocks, quorum_certs) = initial_data.take();
@@ -172,6 +175,7 @@ impl BlockStore {
             pending_blocks,
             enable_randomness,
             validator_indices,
+            validator_verifier,
         ));
         block_on(block_store.recover_blocks());
         block_store
@@ -190,6 +194,7 @@ impl BlockStore {
         pending_blocks: Arc<Mutex<PendingBlocks>>,
         enable_randomness: bool,
         validator_indices: HashMap<AccountAddress, usize>,
+        validator_verifier: Arc<ValidatorVerifier>,
     ) -> Self {
         let highest_2chain_tc = initial_data.highest_2chain_timeout_certificate();
         let (root, blocks, quorum_certs) = initial_data.take();
@@ -210,6 +215,7 @@ impl BlockStore {
             pending_blocks,
             enable_randomness,
             validator_indices,
+            validator_verifier,
         )
         .await;
         block_store.recover_blocks().await;
@@ -271,8 +277,8 @@ impl BlockStore {
             }
 
             let Some(last_li) = &last_ledger_info else { continue };
-            if last_li.ledger_info().epoch() != qc.commit_info().epoch() ||
-                commit_round > last_li.commit_info().round()
+            if last_li.ledger_info().epoch() != qc.commit_info().epoch()
+                || commit_round > last_li.commit_info().round()
             {
                 continue;
             }
@@ -360,9 +366,9 @@ impl BlockStore {
         ledger_info: &LedgerInfoWithSignatures,
     ) -> (bool, Option<Arc<WrappedLedgerInfo>>) {
         // Fast return: these conditions mean no special handling is needed
-        if !self.enable_randomness ||
-            self.ordered_root().epoch() == 1 ||
-            ledger_info.commit_info().round() == 0
+        if !self.enable_randomness
+            || self.ordered_root().epoch() == 1
+            || ledger_info.commit_info().round() == 0
         {
             return (false, None);
         }
@@ -443,6 +449,7 @@ impl BlockStore {
         pending_blocks: Arc<Mutex<PendingBlocks>>,
         enable_randomness: bool,
         validator_indices: HashMap<AccountAddress, usize>,
+        validator_verifier: Arc<ValidatorVerifier>,
     ) -> Self {
         let RootInfo(root_block, root_qc, root_ordered_cert, root_commit_cert) = root;
         let root_round = root_block.round();
@@ -480,6 +487,7 @@ impl BlockStore {
             pending_blocks,
             enable_randomness,
             validator_indices,
+            validator_verifier,
         };
 
         // Skip ancestors of the root. They can appear in recovery data when an
@@ -694,6 +702,7 @@ impl BlockStore {
                 let extra_data = crate::state_computer::process_validator_transactions_util(
                     validator_txns.map(|v| &**v),
                     p_block.block(),
+                    &self.validator_verifier,
                 );
 
                 // In recovery mode, use existing randomness from the block
@@ -925,6 +934,7 @@ impl BlockStore {
             self.pending_blocks.clone(),
             self.enable_randomness,
             self.validator_indices.clone(),
+            self.validator_verifier.clone(),
         )
         .await;
 

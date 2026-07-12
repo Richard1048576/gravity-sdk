@@ -367,12 +367,12 @@ impl<P: OnChainConfigProvider> EpochManager<P> {
                     weight_by_voting_power,
                     use_history_from_previous_epoch_max_count,
                 ) = match &leader_reputation_type {
-                    LeaderReputationType::ProposerAndVoter(proposer_and_voter_config) |
-                    LeaderReputationType::ProposerAndVoterV2(proposer_and_voter_config) => {
-                        let proposer_window_size = proposers.len() *
-                            proposer_and_voter_config.proposer_window_num_validators_multiplier;
-                        let voter_window_size = proposers.len() *
-                            proposer_and_voter_config.voter_window_num_validators_multiplier;
+                    LeaderReputationType::ProposerAndVoter(proposer_and_voter_config)
+                    | LeaderReputationType::ProposerAndVoterV2(proposer_and_voter_config) => {
+                        let proposer_window_size = proposers.len()
+                            * proposer_and_voter_config.proposer_window_num_validators_multiplier;
+                        let voter_window_size = proposers.len()
+                            * proposer_and_voter_config.voter_window_num_validators_multiplier;
                         let heuristic: Box<dyn ReputationHeuristic> =
                             Box::new(ProposerAndVoterHeuristic::new(
                                 self.author,
@@ -393,9 +393,9 @@ impl<P: OnChainConfigProvider> EpochManager<P> {
                     }
                 };
 
-                let seek_len = onchain_config.leader_reputation_exclude_round() as usize +
-                    onchain_config.max_failed_authors_to_store() +
-                    PROPOSER_ROUND_BEHIND_STORAGE_BUFFER;
+                let seek_len = onchain_config.leader_reputation_exclude_round() as usize
+                    + onchain_config.max_failed_authors_to_store()
+                    + PROPOSER_ROUND_BEHIND_STORAGE_BUFFER;
 
                 let backend =
                     Arc::new(AptosDBBackend::new(window_size, seek_len, self.storage.aptos_db()));
@@ -445,8 +445,8 @@ impl<P: OnChainConfigProvider> EpochManager<P> {
                 Arc::new(CachedProposerElection::new(
                     epoch_state.epoch,
                     proposer_election,
-                    onchain_config.max_failed_authors_to_store() +
-                        PROPOSER_ELECTION_CACHING_WINDOW_ADDITION,
+                    onchain_config.max_failed_authors_to_store()
+                        + PROPOSER_ELECTION_CACHING_WINDOW_ADDITION,
                 ))
             }
             ProposerElectionType::RoundProposer(round_proposers) => {
@@ -883,6 +883,7 @@ impl<P: OnChainConfigProvider> EpochManager<P> {
                 self.pending_blocks.clone(),
                 onchain_randomness_config.randomness_enabled(),
                 validator_indices,
+                epoch_state.verifier.clone(),
             )
             .await,
         );
@@ -1039,11 +1040,11 @@ impl<P: OnChainConfigProvider> EpochManager<P> {
         )
         .map_err(NoRandomnessReason::SecretShareDecryptionFailed)?;
 
-        let fast_randomness_is_enabled = onchain_randomness_config.fast_randomness_enabled() &&
-            sk.fast.is_some() &&
-            pk.fast.is_some() &&
-            transcript.fast.is_some() &&
-            dkg_pub_params.pvss_config.fast_wconfig.is_some();
+        let fast_randomness_is_enabled = onchain_randomness_config.fast_randomness_enabled()
+            && sk.fast.is_some()
+            && pk.fast.is_some()
+            && transcript.fast.is_some()
+            && dkg_pub_params.pvss_config.fast_wconfig.is_some();
 
         let pk_shares = (0..new_epoch_state.verifier.len())
             .map(|id| {
@@ -1590,16 +1591,16 @@ impl<P: OnChainConfigProvider> EpochManager<P> {
         msg: ConsensusMsg,
     ) -> anyhow::Result<Option<UnverifiedEvent>> {
         match msg {
-            ConsensusMsg::ProposalMsg(_) |
-            ConsensusMsg::SyncInfo(_) |
-            ConsensusMsg::VoteMsg(_) |
-            ConsensusMsg::OrderVoteMsg(_) |
-            ConsensusMsg::CommitVoteMsg(_) |
-            ConsensusMsg::CommitDecisionMsg(_) |
-            ConsensusMsg::BatchMsg(_) |
-            ConsensusMsg::BatchRequestMsg(_) |
-            ConsensusMsg::SignedBatchInfo(_) |
-            ConsensusMsg::ProofOfStoreMsg(_) => {
+            ConsensusMsg::ProposalMsg(_)
+            | ConsensusMsg::SyncInfo(_)
+            | ConsensusMsg::VoteMsg(_)
+            | ConsensusMsg::OrderVoteMsg(_)
+            | ConsensusMsg::CommitVoteMsg(_)
+            | ConsensusMsg::CommitDecisionMsg(_)
+            | ConsensusMsg::BatchMsg(_)
+            | ConsensusMsg::BatchRequestMsg(_)
+            | ConsensusMsg::SignedBatchInfo(_)
+            | ConsensusMsg::ProofOfStoreMsg(_) => {
                 let event: UnverifiedEvent = msg.into();
                 debug!("event epoch: {:?} and self epoch {:?}", event.epoch(), self.epoch());
                 if event.epoch()? == self.epoch() {
@@ -1656,9 +1657,9 @@ impl<P: OnChainConfigProvider> EpochManager<P> {
         event: &UnverifiedEvent,
     ) -> anyhow::Result<bool> {
         match event {
-            UnverifiedEvent::BatchMsg(_) |
-            UnverifiedEvent::SignedBatchInfo(_) |
-            UnverifiedEvent::ProofOfStoreMsg(_) => {
+            UnverifiedEvent::BatchMsg(_)
+            | UnverifiedEvent::SignedBatchInfo(_)
+            | UnverifiedEvent::ProofOfStoreMsg(_) => {
                 if self.quorum_store_enabled {
                     Ok(true) // This states that we shouldn't filter out the event
                 } else if self.recovery_mode {
@@ -1705,9 +1706,9 @@ impl<P: OnChainConfigProvider> EpochManager<P> {
             );
         }
         if let Err(e) = match event {
-            quorum_store_event @ (VerifiedEvent::SignedBatchInfo(_) |
-            VerifiedEvent::ProofOfStoreMsg(_) |
-            VerifiedEvent::BatchMsg(_)) => {
+            quorum_store_event @ (VerifiedEvent::SignedBatchInfo(_)
+            | VerifiedEvent::ProofOfStoreMsg(_)
+            | VerifiedEvent::BatchMsg(_)) => {
                 Self::forward_event_to(quorum_store_msg_tx, peer_id, quorum_store_event)
                     .context("quorum store sender")
             }
@@ -1738,9 +1739,9 @@ impl<P: OnChainConfigProvider> EpochManager<P> {
     /// Return false if the request is filtered out, true otherwise.
     fn rpc_request_filter(&self, peer_id: &Author, request: &IncomingRpcRequest) -> bool {
         match request {
-            IncomingRpcRequest::BlockRetrieval(_) |
-            IncomingRpcRequest::SyncInfoRequest(_) |
-            IncomingRpcRequest::BatchRetrieval(_) => true,
+            IncomingRpcRequest::BlockRetrieval(_)
+            | IncomingRpcRequest::SyncInfoRequest(_)
+            | IncomingRpcRequest::BatchRetrieval(_) => true,
             _ => self.is_current_epoch_validator,
         }
     }
@@ -1769,9 +1770,9 @@ impl<P: OnChainConfigProvider> EpochManager<P> {
             }
             None => {
                 ensure!(
-                    matches!(request, IncomingRpcRequest::BlockRetrieval(_)) ||
-                        matches!(request, IncomingRpcRequest::BatchRetrieval(_)) ||
-                        matches!(request, IncomingRpcRequest::SyncInfoRequest(_))
+                    matches!(request, IncomingRpcRequest::BlockRetrieval(_))
+                        || matches!(request, IncomingRpcRequest::BatchRetrieval(_))
+                        || matches!(request, IncomingRpcRequest::SyncInfoRequest(_))
                 );
             }
             _ => {}
@@ -1826,7 +1827,7 @@ impl<P: OnChainConfigProvider> EpochManager<P> {
         debug_assert!(!self.is_current_epoch_validator);
         if self.inflight_request_sync_info {
             info!("Already inflight request sync info");
-            return
+            return;
         }
 
         let network_id = fullnode_side_network_id(self.node_type);
@@ -1885,7 +1886,7 @@ impl<P: OnChainConfigProvider> EpochManager<P> {
     /// Advance the block sync progress for fullnode.
     fn advance_block_sync(&self, peer_id: Author, sync_info: Box<SyncInfo>) {
         if self.is_current_epoch_validator {
-            return
+            return;
         }
 
         info!("advancing block sync from peer {peer_id}. epoch: {}, highest_ordered_round: {}, highest_commit_round: {}", sync_info.epoch(), sync_info.highest_ordered_round(), sync_info.highest_commit_round());
