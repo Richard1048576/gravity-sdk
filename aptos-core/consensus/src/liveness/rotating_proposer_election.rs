@@ -27,7 +27,9 @@ impl RotatingProposer {
     /// With only one proposer in the vector, it behaves the same as a fixed proposer strategy.
     pub fn new(proposers: Vec<Author>, contiguous_rounds: u32) -> Self {
         assert!(!proposers.is_empty(), "RotatingProposer requires at least one proposer");
-        assert!(contiguous_rounds > 0, "contiguous_rounds must be greater than 0");
+        // Treat a malformed on-chain value of 0 as the minimum valid rotation interval. This
+        // preserves liveness instead of allowing consensus startup to panic on division by zero.
+        let contiguous_rounds = contiguous_rounds.max(1);
         Self { proposers, contiguous_rounds }
     }
 }
